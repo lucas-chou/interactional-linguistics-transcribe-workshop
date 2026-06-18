@@ -688,10 +688,14 @@ function App() {
           <button className={view === 'workbench' ? 'tab-button active' : 'tab-button'} onClick={() => setView('workbench')}>工作台</button>
           <button className={view === 'corpus' ? 'tab-button active' : 'tab-button'} onClick={openCorpusPage}>语料库</button>
           <button className={view === 'system' ? 'tab-button active' : 'tab-button'} onClick={openSystemPage}>系统</button>
-          <button onClick={() => saveTranscript()} disabled={!transcript}>保存编辑</button>
-          <button onClick={saveToCorpus} disabled={!transcript}>保存到语料库</button>
-          <button onClick={() => exportTranscript('txt')} disabled={!transcript}>导出 TXT</button>
-          <button onClick={() => exportTranscript('csv')} disabled={!transcript}>导出 CSV</button>
+          {view === 'workbench' && (
+            <>
+              <button onClick={() => saveTranscript()} disabled={!transcript}>保存编辑</button>
+              <button onClick={saveToCorpus} disabled={!transcript}>保存到语料库</button>
+              <button onClick={() => exportTranscript('txt')} disabled={!transcript}>导出 TXT</button>
+              <button onClick={() => exportTranscript('csv')} disabled={!transcript}>导出 CSV</button>
+            </>
+          )}
           {hasUnsavedChanges && <span className="unsaved-badge">未保存</span>}
         </div>
       </header>
