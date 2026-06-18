@@ -769,9 +769,6 @@ function App() {
                 </li>
               ))}
             </ul>
-            <footer className="corpus-footer">
-              本程序由河北大学周焱设计搭建，如果你有改进的想法可联系 zhouyanwork@163.com
-            </footer>
           </div>
         </section>
       ) : view === 'system' ? (
@@ -1083,6 +1080,10 @@ function App() {
           </aside>
         </section>
       )}
+
+      <footer className="corpus-footer">
+        本程序由河北大学周焱设计搭建，如果你有改进的想法可联系 zhouyanwork@163.com
+      </footer>
     </main>
   );
 }
