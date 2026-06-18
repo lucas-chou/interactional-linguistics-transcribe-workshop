@@ -687,12 +687,12 @@ function App() {
         <div className="topbar-actions">
           <button className={view === 'workbench' ? 'tab-button active' : 'tab-button'} onClick={() => setView('workbench')}>工作台</button>
           <button className={view === 'corpus' ? 'tab-button active' : 'tab-button'} onClick={openCorpusPage}>语料库</button>
-          <button className={view === 'system' ? 'tab-button active' : 'tab-button'} onClick={openSystemPage}>????</button>
+          <button className={view === 'system' ? 'tab-button active' : 'tab-button'} onClick={openSystemPage}>系统</button>
           <button onClick={() => saveTranscript()} disabled={!transcript}>保存编辑</button>
           <button onClick={saveToCorpus} disabled={!transcript}>保存到语料库</button>
           <button onClick={() => exportTranscript('txt')} disabled={!transcript}>导出 TXT</button>
           <button onClick={() => exportTranscript('csv')} disabled={!transcript}>导出 CSV</button>
-          {hasUnsavedChanges && <span className="unsaved-badge">???</span>}
+          {hasUnsavedChanges && <span className="unsaved-badge">未保存</span>}
         </div>
       </header>
 
@@ -713,7 +713,7 @@ function App() {
                 placeholder="输入检索词"
               />
               <select value={selectedTag} onChange={(event) => setSelectedTag(event.target.value)}>
-                <option value="">????</option>
+                <option value="">全部标签</option>
                 {availableTags.map((tag) => (
                   <option key={tag} value={tag}>{tag}</option>
                 ))}
@@ -721,11 +721,11 @@ function App() {
               <button onClick={() => search()}>搜索</button>
             </div>
             <div className="batch-actions">
-              <span>??? {selectedResultIds.length} ?</span>
-              <button onClick={() => setSelectedResultIds(results.map((result) => result.transcript_id))} disabled={!results.length}>??</button>
-              <button onClick={() => setSelectedResultIds([])} disabled={!selectedResultIds.length}>??</button>
-              <button onClick={() => exportSelectedResults('txt')} disabled={!selectedResultIds.length}>???? TXT</button>
-              <button onClick={() => exportSelectedResults('csv')} disabled={!selectedResultIds.length}>???? CSV</button>
+              <span>已选 {selectedResultIds.length} 条</span>
+              <button onClick={() => setSelectedResultIds(results.map((result) => result.transcript_id))} disabled={!results.length}>全选</button>
+              <button onClick={() => setSelectedResultIds([])} disabled={!selectedResultIds.length}>清空</button>
+              <button onClick={() => exportSelectedResults('txt')} disabled={!selectedResultIds.length}>批量导出 TXT</button>
+              <button onClick={() => exportSelectedResults('csv')} disabled={!selectedResultIds.length}>批量导出 CSV</button>
             </div>
             <ul className="search-results corpus-results">
               {results.map((result) => (
@@ -736,7 +736,7 @@ function App() {
                       checked={selectedResultIds.includes(result.transcript_id)}
                       onChange={(event) => toggleResultSelection(result.transcript_id, event.target.checked)}
                     />
-                    ??
+                    选择
                   </label>
                   <button
                     onClick={async () => {
@@ -832,9 +832,9 @@ function App() {
               <input type="file" accept="audio/*,video/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
               <button onClick={upload} disabled={!file}>导入</button>
               <div className="inline-divider" />
-              <label className="mini-label">???????????</label>
+              <label className="mini-label">导入外部转写文本</label>
               <input type="file" accept=".txt,text/plain" onChange={(event) => setTextFile(event.target.files?.[0] ?? null)} />
-              <button onClick={importTextFile} disabled={!selectedMedia || !textFile}>????</button>
+              <button onClick={importTextFile} disabled={!selectedMedia || !textFile}>导入文本</button>
             </div>
 
             <div className="panel">
