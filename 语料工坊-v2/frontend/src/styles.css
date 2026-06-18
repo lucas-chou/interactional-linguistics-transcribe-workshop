@@ -589,6 +589,21 @@ mark {
   margin-top: 16px;
 }
 
+.corpus-result-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 10px;
+}
+
+.result-select-left {
+  margin: 6px 0 0;
+}
+
+.corpus-result-content {
+  min-width: 0;
+}
+
 .corpus-footer {
   margin-top: 28px;
   border-top: 1px solid #e2e8f0;

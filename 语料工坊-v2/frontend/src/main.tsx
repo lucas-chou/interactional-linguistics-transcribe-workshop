@@ -729,38 +729,39 @@ function App() {
             </div>
             <ul className="search-results corpus-results">
               {results.map((result) => (
-                <li key={`${result.transcript_id}-${result.snippet}`}>
-                  <label className="result-select">
+                <li key={`${result.transcript_id}-${result.snippet}`} className="corpus-result-item">
+                  <label className="result-select result-select-left" title="选择语料">
                     <input
                       type="checkbox"
                       checked={selectedResultIds.includes(result.transcript_id)}
                       onChange={(event) => toggleResultSelection(result.transcript_id, event.target.checked)}
                     />
-                    选择
                   </label>
-                  <button
-                    onClick={async () => {
-                      const data = await loadTranscript(result.transcript_id);
-                      const items = await loadMediaItems();
-                      const matched = items.find((item) => item.id === result.media_id);
-                      if (matched) {
-                        setSelectedMedia(matched);
-                        window.localStorage.setItem('selectedMediaId', matched.id);
-                      }
-                      setView('workbench');
-                      highlightEditorTerm(getSnippetHighlightTerm(result.snippet, query), data.segments.map((segment) => segment.text).join('\n'));
-                    }}
-                  >
-                    打开
-                  </button>
-                  <p>{renderHighlightedSnippet(result.snippet, query)}</p>
-                  {!!result.tags.length && (
-                    <div className="tag-list result-tags">
-                      {result.tags.map((tag) => (
-                        <span key={tag}>{tag}</span>
-                      ))}
-                    </div>
-                  )}
+                  <div className="corpus-result-content">
+                    <button
+                      onClick={async () => {
+                        const data = await loadTranscript(result.transcript_id);
+                        const items = await loadMediaItems();
+                        const matched = items.find((item) => item.id === result.media_id);
+                        if (matched) {
+                          setSelectedMedia(matched);
+                          window.localStorage.setItem('selectedMediaId', matched.id);
+                        }
+                        setView('workbench');
+                        highlightEditorTerm(getSnippetHighlightTerm(result.snippet, query), data.segments.map((segment) => segment.text).join('\n'));
+                      }}
+                    >
+                      打开
+                    </button>
+                    <p>{renderHighlightedSnippet(result.snippet, query)}</p>
+                    {!!result.tags.length && (
+                      <div className="tag-list result-tags">
+                        {result.tags.map((tag) => (
+                          <span key={tag}>{tag}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
