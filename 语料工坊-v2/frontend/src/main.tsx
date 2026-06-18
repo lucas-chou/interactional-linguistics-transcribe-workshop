@@ -203,6 +203,76 @@ function getSnippetHighlightTerm(snippet: string, query: string) {
   return (bracketMatch?.[1] ?? query).trim();
 }
 
+function pauseMarkForGap(gapSeconds: number) {
+  if (gapSeconds >= 1.5) return `...(${gapSeconds.toFixed(1)})`;
+  if (gapSeconds >= 0.8) return '...';
+  if (gapSeconds >= 0.3) return '..';
+  return '';
+}
+
+function findWordSpan(line: string, wordText: string, fromIndex: number) {
+  const raw = wordText.trim();
+  if (!raw) return null;
+
+  const exactStart = line.indexOf(raw, fromIndex);
+  if (exactStart >= 0) {
+    return { start: exactStart, end: exactStart + raw.length };
+  }
+
+  const cleaned = raw.replace(/[，。！？、,.!?;；:："'“”‘’（）()[\]{}<>《》\s]/g, '');
+  if (!cleaned || cleaned === raw) return null;
+
+  const cleanedStart = line.indexOf(cleaned, fromIndex);
+  if (cleanedStart >= 0) {
+    return { start: cleanedStart, end: cleanedStart + cleaned.length };
+  }
+  return null;
+}
+
+function hasPauseMarkAt(line: string, position: number) {
+  return /^\s*(?:\.\.\.|\.\.)/.test(line.slice(position, position + 12));
+}
+
+function buildAutoPreAnnotatedText(transcript: Transcript, currentText: string) {
+  let pauseCount = 0;
+  let unmatchedCount = 0;
+  const lines = currentText.split('\n');
+  const nextLines = transcript.segments.map((segment, segmentIndex) => {
+    const line = lines[segmentIndex] ?? segment.text;
+    const insertions: Array<{ position: number; mark: string }> = [];
+    let searchFrom = 0;
+
+    for (let wordIndex = 0; wordIndex < segment.words.length - 1; wordIndex += 1) {
+      const currentWord = segment.words[wordIndex];
+      const nextWord = segment.words[wordIndex + 1];
+      const mark = pauseMarkForGap(nextWord.start_time - currentWord.end_time);
+      if (!mark) continue;
+
+      const span = findWordSpan(line, currentWord.text, searchFrom);
+      if (!span) {
+        unmatchedCount += 1;
+        continue;
+      }
+      searchFrom = span.end;
+      if (hasPauseMarkAt(line, span.end)) continue;
+      insertions.push({ position: span.end, mark });
+    }
+
+    if (!insertions.length) return line;
+
+    pauseCount += insertions.length;
+    return insertions
+      .sort((left, right) => right.position - left.position)
+      .reduce((text, insertion) => `${text.slice(0, insertion.position)}${insertion.mark}${text.slice(insertion.position)}`, line);
+  });
+
+  if (lines.length > transcript.segments.length) {
+    nextLines.push(...lines.slice(transcript.segments.length));
+  }
+
+  return { text: nextLines.join('\n'), pauseCount, unmatchedCount };
+}
+
 function App() {
   const playerRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
@@ -486,6 +556,23 @@ function App() {
       await loadTranscript(transcript.id);
     }
     setHasUnsavedChanges(false);
+  }
+
+  function applyAutoPreAnnotation() {
+    if (!transcript) return;
+    if (hasUnsavedChanges && !window.confirm('当前编辑器有未保存修改。自动预标注会在当前文本上插入停顿标记，建议先保存。确定继续吗？')) {
+      return;
+    }
+    const result = buildAutoPreAnnotatedText(transcript, draftText);
+    if (!result.pauseCount) {
+      window.alert('未发现可自动插入的停顿标记。该功能需要 WhisperX 词级时间戳。');
+      return;
+    }
+    setDraftText(result.text);
+    setHasUnsavedChanges(true);
+    setPlaybackHighlightRange(null);
+    setSaveMessage(`已插入 ${result.pauseCount} 个停顿预标注`);
+    window.setTimeout(() => setSaveMessage(''), 2500);
   }
 
   function parseTags() {
@@ -1001,6 +1088,7 @@ function App() {
                     />
                     播放时光标跟随
                   </label>
+                  <button onClick={applyAutoPreAnnotation} disabled={!transcript}>自动预标注</button>
                   {saveMessage && <span>{saveMessage}</span>}
                   {transcript && <span>{transcript.segments.length} 个片段</span>}
                 </div>
