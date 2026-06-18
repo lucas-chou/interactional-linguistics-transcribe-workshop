@@ -47,3 +47,15 @@ class TranscriptUpdate(BaseModel):
 
 class TranscriptTagsUpdate(BaseModel):
     tags: list[str] = []
+
+
+class BatchExportRequest(BaseModel):
+    transcript_ids: list[str]
+    format: str = "txt"
+
+
+class TextImportRequest(BaseModel):
+    media_id: str
+    text: str
+    model: str = "manual"
+    language: str | None = None

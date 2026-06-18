@@ -133,6 +133,16 @@ type SearchResult = {
   tags: string[];
 };
 
+type BackupItem = {
+  filename: string;
+  size: number;
+  created_at: number;
+};
+
+type SystemStatus = Record<string, { ok: boolean; message: string }> & {
+  counts?: { media: number; transcripts: number; corpus: number };
+};
+
 function formatTime(seconds: number) {
   const value = Math.max(0, seconds || 0);
   const minutes = Math.floor(value / 60);
@@ -200,8 +210,9 @@ function App() {
   const lastFollowCursorRef = useRef(-1);
   const lastEditorSelectionRef = useRef({ start: 0, end: 0 });
   const editorRangesRef = useRef<Array<{ start: number; end: number; startTime: number; endTime: number }>>([]);
-  const [view, setView] = useState<'workbench' | 'corpus'>('workbench');
+  const [view, setView] = useState<'workbench' | 'corpus' | 'system'>('workbench');
   const [file, setFile] = useState<File | null>(null);
+  const [textFile, setTextFile] = useState<File | null>(null);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
   const [task, setTask] = useState<TaskStatus | null>(null);
@@ -215,8 +226,17 @@ function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [cursorFollowsPlayback, setCursorFollowsPlayback] = useState(true);
   const [saveMessage, setSaveMessage] = useState('');
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [selectedResultIds, setSelectedResultIds] = useState<string[]>([]);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [selectedTag, setSelectedTag] = useState('');
+  const [backups, setBackups] = useState<BackupItem[]>([]);
+  const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [systemMessage, setSystemMessage] = useState('');
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [cleanupPreview, setCleanupPreview] = useState<{ missing_media_records: string[]; orphan_media_files: string[]; work_dirs: string[] } | null>(null);
   const [settings, setSettings] = useState({
     model: 'base',
     language: 'zh',
@@ -262,6 +282,17 @@ function App() {
   }, []);
 
   useEffect(() => {
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      if (!hasUnsavedChanges) return;
+      event.preventDefault();
+      event.returnValue = '';
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== 'F1') return;
       event.preventDefault();
@@ -297,6 +328,7 @@ function App() {
   }
 
   async function selectMedia(item: MediaItem) {
+    if (hasUnsavedChanges && !window.confirm('当前编辑内容尚未保存，切换媒体会丢失未保存修改。确定继续吗？')) return;
     setSelectedMedia(item);
     setTask(null);
     setCurrentTime(0);
@@ -375,6 +407,7 @@ function App() {
     setTranscript(data);
     setDraftText(data.segments.map((segment) => segment.text).join('\n'));
     setTagDraft((data.tags ?? []).join(', '));
+    setHasUnsavedChanges(false);
     return data;
   }
 
@@ -452,6 +485,7 @@ function App() {
     if (reload) {
       await loadTranscript(transcript.id);
     }
+    setHasUnsavedChanges(false);
   }
 
   function parseTags() {
@@ -470,6 +504,7 @@ function App() {
       body: JSON.stringify({ tags: parseTags() }),
     });
     await loadTranscript(transcript.id);
+    setHasUnsavedChanges(false);
   }
 
   async function saveToCorpus() {
@@ -505,6 +540,7 @@ function App() {
     const cursorPosition = start + (mark.cursorOffset ?? mark.symbol.length);
 
     setDraftText(nextText);
+    setHasUnsavedChanges(true);
     window.setTimeout(() => {
       editorRef.current?.focus();
       editorRef.current?.setSelectionRange(cursorPosition, cursorPosition);
@@ -521,13 +557,124 @@ function App() {
   }
 
   async function search(nextQuery = query) {
-    const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(nextQuery.trim())}`);
+    const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(nextQuery.trim())}&tag=${encodeURIComponent(selectedTag)}`);
     setResults(await response.json());
+    setSelectedResultIds([]);
   }
 
   async function openCorpusPage() {
     setView('corpus');
-    await search('');
+    await Promise.all([loadTags(), search('')]);
+  }
+
+  async function loadTags() {
+    const response = await fetch(`${API_BASE}/api/tags`);
+    setAvailableTags(await response.json());
+  }
+
+  async function loadBackups() {
+    const response = await fetch(`${API_BASE}/api/backups`);
+    setBackups(await response.json());
+  }
+
+  async function openSystemPage() {
+    setView('system');
+    await Promise.all([loadBackups(), loadSystemStatus(), loadCleanupPreview()]);
+  }
+
+  async function importTextFile() {
+    if (!selectedMedia || !textFile) return;
+    const text = await textFile.text();
+    const response = await fetch(`${API_BASE}/api/transcripts/import-text`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ media_id: selectedMedia.id, text }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      window.alert(data.detail ?? '导入文本失败');
+      return;
+    }
+    await loadTranscript(data.transcript_id);
+    await loadMediaItems();
+  }
+
+  async function loadSystemStatus() {
+    const response = await fetch(`${API_BASE}/api/system/status`);
+    setSystemStatus(await response.json());
+  }
+
+  async function createBackup() {
+    setSystemMessage('正在创建备份...');
+    const response = await fetch(`${API_BASE}/api/backups`, { method: 'POST' });
+    const data = await response.json();
+    setSystemMessage(data.ok ? `备份已创建：${data.filename}` : '备份失败');
+    await loadBackups();
+  }
+
+  async function restoreBackup() {
+    if (!restoreFile) return;
+    if (!window.confirm('恢复备份会替换当前数据库和媒体文件。系统会先自动创建一个安全备份。确定继续吗？')) return;
+    setSystemMessage('正在恢复备份...');
+    const form = new FormData();
+    form.append('file', restoreFile);
+    const response = await fetch(`${API_BASE}/api/backups/restore`, { method: 'POST', body: form });
+    const data = await response.json();
+    if (!response.ok) {
+      setSystemMessage(data.detail ?? '恢复失败');
+      return;
+    }
+    setSystemMessage(`恢复完成。安全备份：${data.safety_backup}`);
+    setSelectedMedia(null);
+    setTranscript(null);
+    setDraftText('');
+    setTagDraft('');
+    await loadMediaItems();
+    await loadBackups();
+  }
+
+  function downloadBackup(filename: string) {
+    window.open(`${API_BASE}/api/backups/${encodeURIComponent(filename)}`, '_blank');
+  }
+
+  async function loadCleanupPreview() {
+    const response = await fetch(`${API_BASE}/api/cleanup/preview`);
+    setCleanupPreview(await response.json());
+  }
+
+  async function runCleanup() {
+    if (!window.confirm('清理会删除临时任务目录、孤立媒体文件和无效记录。建议先创建备份。确定继续吗？')) return;
+    const response = await fetch(`${API_BASE}/api/cleanup`, { method: 'POST' });
+    const data = await response.json();
+    setSystemMessage(data.ok ? '数据清理完成' : '数据清理失败');
+    await Promise.all([loadCleanupPreview(), loadMediaItems(), loadSystemStatus()]);
+  }
+
+  function toggleResultSelection(transcriptId: string, checked: boolean) {
+    setSelectedResultIds((current) => checked ? Array.from(new Set([...current, transcriptId])) : current.filter((id) => id !== transcriptId));
+  }
+
+  async function exportSelectedResults(format: 'txt' | 'csv') {
+    if (!selectedResultIds.length) {
+      window.alert('请先选择要导出的语料');
+      return;
+    }
+    const response = await fetch(`${API_BASE}/api/exports/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transcript_ids: selectedResultIds, format }),
+    });
+    if (!response.ok) {
+      window.alert('批量导出失败');
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `corpus-batch-export.${format}.zip`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -540,10 +687,12 @@ function App() {
         <div className="topbar-actions">
           <button className={view === 'workbench' ? 'tab-button active' : 'tab-button'} onClick={() => setView('workbench')}>工作台</button>
           <button className={view === 'corpus' ? 'tab-button active' : 'tab-button'} onClick={openCorpusPage}>语料库</button>
+          <button className={view === 'system' ? 'tab-button active' : 'tab-button'} onClick={openSystemPage}>????</button>
           <button onClick={() => saveTranscript()} disabled={!transcript}>保存编辑</button>
           <button onClick={saveToCorpus} disabled={!transcript}>保存到语料库</button>
           <button onClick={() => exportTranscript('txt')} disabled={!transcript}>导出 TXT</button>
           <button onClick={() => exportTranscript('csv')} disabled={!transcript}>导出 CSV</button>
+          {hasUnsavedChanges && <span className="unsaved-badge">???</span>}
         </div>
       </header>
 
@@ -563,11 +712,32 @@ function App() {
                 }}
                 placeholder="输入检索词"
               />
+              <select value={selectedTag} onChange={(event) => setSelectedTag(event.target.value)}>
+                <option value="">????</option>
+                {availableTags.map((tag) => (
+                  <option key={tag} value={tag}>{tag}</option>
+                ))}
+              </select>
               <button onClick={() => search()}>搜索</button>
+            </div>
+            <div className="batch-actions">
+              <span>??? {selectedResultIds.length} ?</span>
+              <button onClick={() => setSelectedResultIds(results.map((result) => result.transcript_id))} disabled={!results.length}>??</button>
+              <button onClick={() => setSelectedResultIds([])} disabled={!selectedResultIds.length}>??</button>
+              <button onClick={() => exportSelectedResults('txt')} disabled={!selectedResultIds.length}>???? TXT</button>
+              <button onClick={() => exportSelectedResults('csv')} disabled={!selectedResultIds.length}>???? CSV</button>
             </div>
             <ul className="search-results corpus-results">
               {results.map((result) => (
                 <li key={`${result.transcript_id}-${result.snippet}`}>
+                  <label className="result-select">
+                    <input
+                      type="checkbox"
+                      checked={selectedResultIds.includes(result.transcript_id)}
+                      onChange={(event) => toggleResultSelection(result.transcript_id, event.target.checked)}
+                    />
+                    ??
+                  </label>
                   <button
                     onClick={async () => {
                       const data = await loadTranscript(result.transcript_id);
@@ -599,6 +769,61 @@ function App() {
             </footer>
           </div>
         </section>
+      ) : view === 'system' ? (
+        <section className="corpus-page">
+          <div className="panel corpus-search-panel">
+            <div className="editor-header">
+              <h2>系统管理</h2>
+              <span>备份、恢复与维护</span>
+            </div>
+            <div className="system-status-header">
+              <button onClick={loadSystemStatus}>重新检查状态</button>
+              {systemStatus?.counts && (
+                <span>媒体 {systemStatus.counts.media} · 转写 {systemStatus.counts.transcripts} · 入库 {systemStatus.counts.corpus}</span>
+              )}
+            </div>
+            {systemStatus && (
+              <div className="status-grid">
+                {Object.entries(systemStatus)
+                  .filter(([key]) => key !== 'counts')
+                  .map(([key, value]) => {
+                    const item = value as { ok: boolean; message: string };
+                    return (
+                      <div key={key} className={item.ok ? 'status-card ok' : 'status-card bad'}>
+                        <strong>{key}</strong>
+                        <span>{item.ok ? '正常' : '异常'}</span>
+                        <small>{item.message}</small>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+            <div className="backup-actions">
+              <button onClick={createBackup}>创建备份</button>
+              <input type="file" accept=".zip,application/zip" onChange={(event) => setRestoreFile(event.target.files?.[0] ?? null)} />
+              <button onClick={restoreBackup} disabled={!restoreFile}>恢复备份</button>
+            </div>
+            {systemMessage && <div className="status">{systemMessage}</div>}
+            <h3 className="section-title">已有备份</h3>
+            <ul className="search-results corpus-results">
+              {backups.map((backup) => (
+                <li key={backup.filename}>
+                  <button onClick={() => downloadBackup(backup.filename)}>下载</button>
+                  <p>{backup.filename}</p>
+                  <small>{Math.round(backup.size / 1024)} KB</small>
+                </li>
+              ))}
+            </ul>
+            <h3 className="section-title">数据清理</h3>
+            <div className="cleanup-card">
+              <p>缺失媒体记录：{cleanupPreview?.missing_media_records.length ?? 0}</p>
+              <p>孤立媒体文件：{cleanupPreview?.orphan_media_files.length ?? 0}</p>
+              <p>临时任务目录：{cleanupPreview?.work_dirs.length ?? 0}</p>
+              <button onClick={loadCleanupPreview}>重新扫描</button>
+              <button className="danger" onClick={runCleanup}>执行清理</button>
+            </div>
+          </div>
+        </section>
       ) : (
         <section className="workspace">
           <aside className="sidebar">
@@ -606,6 +831,10 @@ function App() {
               <h2>导入文件</h2>
               <input type="file" accept="audio/*,video/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
               <button onClick={upload} disabled={!file}>导入</button>
+              <div className="inline-divider" />
+              <label className="mini-label">???????????</label>
+              <input type="file" accept=".txt,text/plain" onChange={(event) => setTextFile(event.target.files?.[0] ?? null)} />
+              <button onClick={importTextFile} disabled={!selectedMedia || !textFile}>????</button>
             </div>
 
             <div className="panel">
@@ -761,7 +990,10 @@ function App() {
                       自定义标签
                       <input
                         value={tagDraft}
-                        onChange={(event) => setTagDraft(event.target.value)}
+                        onChange={(event) => {
+                          setTagDraft(event.target.value);
+                          setHasUnsavedChanges(true);
+                        }}
                         placeholder="例如：访谈、儿童语料、普通话；用逗号或分号分隔"
                       />
                     </label>
@@ -780,7 +1012,10 @@ function App() {
                       ref={editorRef}
                       className={editorHighlightTerm ? 'full-transcript highlighted' : 'full-transcript'}
                       value={draftText}
-                      onChange={(event) => setDraftText(event.target.value)}
+                      onChange={(event) => {
+                        setDraftText(event.target.value);
+                        setHasUnsavedChanges(true);
+                      }}
                       onScroll={(event) => {
                         if (highlightLayerRef.current) {
                           highlightLayerRef.current.scrollTop = event.currentTarget.scrollTop;

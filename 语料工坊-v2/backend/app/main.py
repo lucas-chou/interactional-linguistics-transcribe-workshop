@@ -2,6 +2,12 @@ import asyncio
 import csv
 import io
 import json
+import shutil
+import socket
+import subprocess
+import sys
+import uuid
+import zipfile
 from pathlib import Path
 from urllib.parse import quote
 
@@ -10,8 +16,9 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSock
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from .config import DATA_DIR, DB_PATH, MEDIA_DIR, WORK_DIR
 from .db import connect, init_db
-from .models import SearchResult, TranscribeRequest, TranscriptTagsUpdate, TranscriptUpdate
+from .models import BatchExportRequest, SearchResult, TextImportRequest, TranscribeRequest, TranscriptTagsUpdate, TranscriptUpdate
 from .storage import get_media, save_upload
 from .storage import utc_now
 from .tasks import task_manager
@@ -27,6 +34,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+BACKUP_DIR = DATA_DIR / "backups"
 
 
 def attach_tags(conn, rows) -> list[dict]:
@@ -52,6 +61,20 @@ def attach_tags(conn, rows) -> list[dict]:
     return items
 
 
+def create_backup_archive() -> Path:
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    archive_path = BACKUP_DIR / f"corpus-backup-{utc_now().replace(':', '-').replace(' ', '_')}.zip"
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+      for path in [DB_PATH, MEDIA_DIR, WORK_DIR]:
+        if path.is_file():
+          archive.write(path, arcname=path.relative_to(DATA_DIR))
+        elif path.is_dir():
+          for item in path.rglob("*"):
+            if item.is_file():
+              archive.write(item, arcname=item.relative_to(DATA_DIR))
+    return archive_path
+
+
 @app.on_event("startup")
 async def startup() -> None:
     init_db()
@@ -60,6 +83,164 @@ async def startup() -> None:
 @app.get("/api/health")
 async def health() -> dict:
     return {"ok": True}
+
+
+@app.get("/api/system/status")
+async def system_status() -> dict:
+    def command_ok(command: list[str]) -> tuple[bool, str]:
+        try:
+            process = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=8)
+            output = (process.stdout or process.stderr or "").strip().splitlines()
+            return process.returncode == 0, output[0] if output else ""
+        except Exception as exc:
+            return False, str(exc)
+
+    def port_open(port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.5)
+            return sock.connect_ex(("127.0.0.1", port)) == 0
+
+    ffmpeg_ok, ffmpeg_message = command_ok(["ffmpeg", "-version"])
+    whisperx_ok = False
+    whisperx_message = ""
+    try:
+        import whisperx  # type: ignore
+
+        whisperx_ok = True
+        whisperx_message = getattr(whisperx, "__version__", "installed")
+    except Exception as exc:
+        whisperx_message = str(exc)
+
+    with connect() as conn:
+        media_count = conn.execute("SELECT COUNT(*) AS count FROM media").fetchone()["count"]
+        transcript_count = conn.execute("SELECT COUNT(*) AS count FROM transcripts").fetchone()["count"]
+        corpus_count = conn.execute("SELECT COUNT(*) AS count FROM transcripts WHERE corpus_saved_at IS NOT NULL").fetchone()["count"]
+
+    return {
+        "python": {"ok": True, "message": sys.version.split()[0]},
+        "ffmpeg": {"ok": ffmpeg_ok, "message": ffmpeg_message},
+        "whisperx": {"ok": whisperx_ok, "message": whisperx_message},
+        "database": {"ok": DB_PATH.exists(), "message": str(DB_PATH)},
+        "media_dir": {"ok": MEDIA_DIR.exists(), "message": str(MEDIA_DIR)},
+        "backend_port": {"ok": port_open(8765), "message": "127.0.0.1:8765"},
+        "frontend_port": {"ok": port_open(5173), "message": "127.0.0.1:5173"},
+        "counts": {"media": media_count, "transcripts": transcript_count, "corpus": corpus_count},
+    }
+
+
+@app.get("/api/backups")
+async def list_backups() -> list[dict]:
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    backups = []
+    for path in sorted(BACKUP_DIR.glob("*.zip"), key=lambda item: item.stat().st_mtime, reverse=True):
+        backups.append({"filename": path.name, "size": path.stat().st_size, "created_at": path.stat().st_mtime})
+    return backups
+
+
+@app.post("/api/backups")
+async def create_backup() -> dict:
+    archive_path = create_backup_archive()
+    return {"ok": True, "filename": archive_path.name, "size": archive_path.stat().st_size}
+
+
+@app.get("/api/backups/{filename}")
+async def download_backup(filename: str) -> FileResponse:
+    archive_path = (BACKUP_DIR / filename).resolve()
+    if not str(archive_path).startswith(str(BACKUP_DIR.resolve())) or not archive_path.exists():
+        raise HTTPException(status_code=404, detail="备份文件不存在")
+    return FileResponse(archive_path, filename=archive_path.name, media_type="application/zip")
+
+
+@app.post("/api/backups/restore")
+async def restore_backup(file: UploadFile = File(...)) -> dict:
+    if not file.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="只支持 zip 备份文件")
+
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    restore_root = DATA_DIR / "restore_tmp"
+    if restore_root.exists():
+        shutil.rmtree(restore_root)
+    restore_root.mkdir(parents=True, exist_ok=True)
+
+    upload_path = restore_root / "backup.zip"
+    with upload_path.open("wb") as output:
+        shutil.copyfileobj(file.file, output)
+
+    try:
+        with zipfile.ZipFile(upload_path) as archive:
+            for member in archive.infolist():
+                target = (restore_root / "extract" / member.filename).resolve()
+                if not str(target).startswith(str((restore_root / "extract").resolve())):
+                    raise HTTPException(status_code=400, detail="备份文件路径不安全")
+            archive.extractall(restore_root / "extract")
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail="备份文件损坏") from exc
+
+    extracted = restore_root / "extract"
+    if not (extracted / "corpus.db").exists():
+        raise HTTPException(status_code=400, detail="备份文件缺少 corpus.db")
+
+    safety_backup = create_backup_archive()
+    for target in [DB_PATH, MEDIA_DIR, WORK_DIR]:
+        if target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
+        elif target.exists():
+            target.unlink()
+
+    shutil.copy2(extracted / "corpus.db", DB_PATH)
+    if (extracted / "media").exists():
+        shutil.copytree(extracted / "media", MEDIA_DIR, dirs_exist_ok=True)
+    if (extracted / "work").exists():
+        shutil.copytree(extracted / "work", WORK_DIR, dirs_exist_ok=True)
+
+    shutil.rmtree(restore_root, ignore_errors=True)
+    init_db()
+    return {"ok": True, "safety_backup": safety_backup.name}
+
+
+def inspect_cleanup() -> dict:
+    with connect() as conn:
+        media_rows = conn.execute("SELECT id, stored_path FROM media").fetchall()
+    missing_media = [row["id"] for row in media_rows if not Path(row["stored_path"]).exists()]
+    referenced_files = {Path(row["stored_path"]).resolve() for row in media_rows}
+    orphan_media_files = []
+    if MEDIA_DIR.exists():
+        for path in MEDIA_DIR.iterdir():
+            if path.is_file() and path.resolve() not in referenced_files:
+                orphan_media_files.append(str(path))
+    work_dirs = [str(path) for path in WORK_DIR.iterdir() if path.is_dir()] if WORK_DIR.exists() else []
+    return {
+        "missing_media_records": missing_media,
+        "orphan_media_files": orphan_media_files,
+        "work_dirs": work_dirs,
+    }
+
+
+@app.get("/api/cleanup/preview")
+async def cleanup_preview() -> dict:
+    return inspect_cleanup()
+
+
+@app.post("/api/cleanup")
+async def cleanup_data() -> dict:
+    summary = inspect_cleanup()
+    with connect() as conn:
+        for media_id in summary["missing_media_records"]:
+            transcript_rows = conn.execute("SELECT id FROM transcripts WHERE media_id = ?", (media_id,)).fetchall()
+            for transcript in transcript_rows:
+                segment_rows = conn.execute("SELECT id FROM segments WHERE transcript_id = ?", (transcript["id"],)).fetchall()
+                for segment in segment_rows:
+                    conn.execute("DELETE FROM words WHERE segment_id = ?", (segment["id"],))
+                conn.execute("DELETE FROM segments WHERE transcript_id = ?", (transcript["id"],))
+                conn.execute("DELETE FROM transcript_tags WHERE transcript_id = ?", (transcript["id"],))
+                conn.execute("DELETE FROM corpus_fts WHERE transcript_id = ?", (transcript["id"],))
+            conn.execute("DELETE FROM transcripts WHERE media_id = ?", (media_id,))
+            conn.execute("DELETE FROM media WHERE id = ?", (media_id,))
+    for path_text in summary["orphan_media_files"]:
+        Path(path_text).unlink(missing_ok=True)
+    for path_text in summary["work_dirs"]:
+        shutil.rmtree(path_text, ignore_errors=True)
+    return {"ok": True, "summary": summary}
 
 
 @app.post("/api/media")
@@ -158,6 +339,39 @@ async def create_transcription(request: TranscribeRequest) -> dict:
     return task_manager.to_dict(task)
 
 
+@app.post("/api/transcripts/import-text")
+async def import_text_transcript(request: TextImportRequest) -> dict:
+    media = get_media(request.media_id)
+    if not media:
+        raise HTTPException(status_code=404, detail="媒体不存在")
+    text = request.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="文本不能为空")
+
+    transcript_id = str(uuid.uuid4())
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        lines = [text]
+    step = 1.0
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO transcripts (id, media_id, engine, model, language, text, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (transcript_id, request.media_id, "manual", request.model, request.language, text, utc_now()),
+        )
+        for index, line in enumerate(lines):
+            conn.execute(
+                """
+                INSERT INTO segments (id, transcript_id, start_time, end_time, text, speaker, sort_index)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (str(uuid.uuid4()), transcript_id, index * step, (index + 1) * step, line, None, index),
+            )
+    return {"ok": True, "transcript_id": transcript_id}
+
+
 @app.get("/api/tasks/{task_id}")
 async def get_task(task_id: str) -> dict:
     task = task_manager.get(task_id)
@@ -238,19 +452,41 @@ def export_filename(original_filename: str, suffix: str) -> str:
     return quote(f"{safe_stem}.{suffix}", safe="")
 
 
+def build_txt_export(transcript: dict, tags: list[str]) -> str:
+    lines = [
+        f"???{transcript['filename']}",
+        f"???{transcript['model']}",
+        f"???{transcript['language'] or ''}",
+        f"???{', '.join(tags)}",
+        "",
+        transcript["text"],
+    ]
+    return "\n".join(lines)
+
+
+def build_csv_export(transcript_id: str, transcript: dict, segments: list[dict], tags: list[str]) -> str:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["filename", "transcript_id", "tags", "segment_index", "start_time", "end_time", "speaker", "text"])
+    for segment in segments:
+        writer.writerow([
+            transcript["filename"],
+            transcript_id,
+            ";".join(tags),
+            segment["sort_index"],
+            segment["start_time"],
+            segment["end_time"],
+            segment["speaker"] or "",
+            segment["text"],
+        ])
+    return buffer.getvalue()
+
+
 @app.get("/api/transcripts/{transcript_id}/export/txt")
 async def export_transcript_txt(transcript_id: str) -> StreamingResponse:
     with connect() as conn:
         transcript, _segments, tags = get_export_data(conn, transcript_id)
-    lines = [
-        f"文件：{transcript['filename']}",
-        f"模型：{transcript['model']}",
-        f"语言：{transcript['language'] or ''}",
-        f"标签：{', '.join(tags)}",
-        "",
-        transcript["text"],
-    ]
-    content = "\n".join(lines)
+    content = build_txt_export(transcript, tags)
     filename = export_filename(transcript["filename"], "txt")
     return StreamingResponse(
         io.BytesIO(content.encode("utf-8-sig")),
@@ -263,26 +499,45 @@ async def export_transcript_txt(transcript_id: str) -> StreamingResponse:
 async def export_transcript_csv(transcript_id: str) -> StreamingResponse:
     with connect() as conn:
         transcript, segments, tags = get_export_data(conn, transcript_id)
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(["filename", "transcript_id", "tags", "segment_index", "start_time", "end_time", "speaker", "text"])
-    for segment in segments:
-        writer.writerow(
-            [
-                transcript["filename"],
-                transcript_id,
-                ";".join(tags),
-                segment["sort_index"],
-                segment["start_time"],
-                segment["end_time"],
-                segment["speaker"] or "",
-                segment["text"],
-            ]
-        )
+    content = build_csv_export(transcript_id, transcript, segments, tags)
     filename = export_filename(transcript["filename"], "csv")
     return StreamingResponse(
-        io.BytesIO(buffer.getvalue().encode("utf-8-sig")),
+        io.BytesIO(content.encode("utf-8-sig")),
         media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@app.post("/api/exports/batch")
+async def export_transcripts_batch(request: BatchExportRequest) -> StreamingResponse:
+    export_format = request.format.lower().strip()
+    if export_format not in {"txt", "csv"}:
+        raise HTTPException(status_code=400, detail="??? txt ? csv")
+    transcript_ids = []
+    seen = set()
+    for transcript_id in request.transcript_ids:
+        if transcript_id not in seen:
+            transcript_ids.append(transcript_id)
+            seen.add(transcript_id)
+    if not transcript_ids:
+        raise HTTPException(status_code=400, detail="?????????")
+
+    zip_buffer = io.BytesIO()
+    with connect() as conn, zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for index, transcript_id in enumerate(transcript_ids, start=1):
+            transcript, segments, tags = get_export_data(conn, transcript_id)
+            stem = Path(transcript["filename"]).stem.strip() or f"transcript-{index}"
+            if export_format == "txt":
+                content = build_txt_export(transcript, tags)
+            else:
+                content = build_csv_export(transcript_id, transcript, segments, tags)
+            archive.writestr(f"{index:03d}-{stem}.{export_format}", content.encode("utf-8-sig"))
+
+    zip_buffer.seek(0)
+    filename = quote(f"corpus-batch-export.{export_format}.zip", safe="")
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )
 
@@ -382,9 +637,23 @@ async def task_socket(websocket: WebSocket, task_id: str) -> None:
 
 
 @app.get("/api/search", response_model=list[SearchResult])
-async def search(q: str = "") -> list[dict]:
+async def search(q: str = "", tag: str = "") -> list[dict]:
     with connect() as conn:
+        tag = tag.strip()
         if not q.strip():
+            if tag:
+                rows = conn.execute(
+                    """
+                    SELECT transcripts.id AS transcript_id, transcripts.media_id, substr(transcripts.text, 1, 220) AS snippet
+                    FROM transcripts
+                    JOIN transcript_tags ON transcript_tags.transcript_id = transcripts.id
+                    WHERE transcripts.corpus_saved_at IS NOT NULL AND transcript_tags.tag = ?
+                    ORDER BY transcripts.created_at DESC
+                    LIMIT 50
+                    """,
+                    (tag,),
+                ).fetchall()
+                return attach_tags(conn, rows)
             rows = conn.execute(
                 """
                 SELECT id AS transcript_id, media_id, substr(text, 1, 220) AS snippet
@@ -396,29 +665,61 @@ async def search(q: str = "") -> list[dict]:
             ).fetchall()
             return attach_tags(conn, rows)
         try:
-            rows = conn.execute(
-                """
-                SELECT transcript_id, media_id, snippet(corpus_fts, 2, '[', ']', '...', 12) AS snippet
-                FROM corpus_fts
-                WHERE corpus_fts MATCH ?
-                LIMIT 50
-                """,
-                (q,),
-            ).fetchall()
+            if tag:
+                rows = conn.execute(
+                    """
+                    SELECT corpus_fts.transcript_id, corpus_fts.media_id, snippet(corpus_fts, 2, '[', ']', '...', 12) AS snippet
+                    FROM corpus_fts
+                    JOIN transcript_tags ON transcript_tags.transcript_id = corpus_fts.transcript_id
+                    WHERE corpus_fts MATCH ? AND transcript_tags.tag = ?
+                    LIMIT 50
+                    """,
+                    (q, tag),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT transcript_id, media_id, snippet(corpus_fts, 2, '[', ']', '...', 12) AS snippet
+                    FROM corpus_fts
+                    WHERE corpus_fts MATCH ?
+                    LIMIT 50
+                    """,
+                    (q,),
+                ).fetchall()
         except Exception:
             rows = []
         if not rows:
-            rows = conn.execute(
-                """
-                SELECT id AS transcript_id, media_id, substr(text, 1, 160) AS snippet
-                FROM transcripts
-                WHERE corpus_saved_at IS NOT NULL AND text LIKE ?
-                ORDER BY created_at DESC
-                LIMIT 50
-                """,
-                (f"%{q}%",),
-            ).fetchall()
+            if tag:
+                rows = conn.execute(
+                    """
+                    SELECT transcripts.id AS transcript_id, transcripts.media_id, substr(transcripts.text, 1, 160) AS snippet
+                    FROM transcripts
+                    JOIN transcript_tags ON transcript_tags.transcript_id = transcripts.id
+                    WHERE transcripts.corpus_saved_at IS NOT NULL AND transcripts.text LIKE ? AND transcript_tags.tag = ?
+                    ORDER BY transcripts.created_at DESC
+                    LIMIT 50
+                    """,
+                    (f"%{q}%", tag),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id AS transcript_id, media_id, substr(text, 1, 160) AS snippet
+                    FROM transcripts
+                    WHERE corpus_saved_at IS NOT NULL AND text LIKE ?
+                    ORDER BY created_at DESC
+                    LIMIT 50
+                    """,
+                    (f"%{q}%",),
+                ).fetchall()
         return attach_tags(conn, rows)
+
+
+@app.get("/api/tags")
+async def list_tags() -> list[str]:
+    with connect() as conn:
+        rows = conn.execute("SELECT DISTINCT tag FROM transcript_tags ORDER BY tag").fetchall()
+        return [row["tag"] for row in rows]
 
 
 if __name__ == "__main__":

@@ -83,6 +83,15 @@ textarea {
   color: #134e4a;
 }
 
+.unsaved-badge {
+  align-self: center;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 12px;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: 290px minmax(420px, 1fr) 300px;
@@ -101,8 +110,123 @@ textarea {
 
 .search-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 180px auto;
   gap: 10px;
+}
+
+.backup-actions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.system-status-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.system-status-header span {
+  color: #475569;
+  font-size: 13px;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.status-card {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.status-card.ok {
+  border-color: #99f6e4;
+  background: #f0fdfa;
+}
+
+.status-card.bad {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.status-card span,
+.status-card small {
+  color: #64748b;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.batch-actions span,
+.result-select {
+  color: #475569;
+  font-size: 13px;
+}
+
+.result-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+}
+
+.result-select input {
+  width: auto;
+}
+
+.section-title {
+  margin: 18px 0 8px;
+  font-size: 15px;
+}
+
+.inline-divider {
+  height: 1px;
+  margin: 10px 0;
+  background: #e2e8f0;
+}
+
+.mini-label {
+  display: block;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.cleanup-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.cleanup-card p {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
 }
 
 .sidebar,
