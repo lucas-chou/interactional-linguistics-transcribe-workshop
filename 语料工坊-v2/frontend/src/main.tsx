@@ -126,6 +126,18 @@ type Transcript = {
   segments: SegmentItem[];
 };
 
+type AcousticCandidate = {
+  kind: string;
+  segment_id: string;
+  word_id: string;
+  text: string;
+  start_time: number;
+  end_time: number;
+  mark: string;
+  reason: string;
+  confidence: number;
+};
+
 type SearchResult = {
   transcript_id: string;
   media_id: string;
@@ -271,6 +283,55 @@ function buildAutoPreAnnotatedText(transcript: Transcript, currentText: string) 
   }
 
   return { text: nextLines.join('\n'), pauseCount, unmatchedCount };
+}
+
+function buildAcousticPreAnnotatedText(transcript: Transcript, currentText: string, candidates: AcousticCandidate[]) {
+  let insertedCount = 0;
+  const lines = currentText.split('\n');
+  const candidatesBySegment = new Map<string, AcousticCandidate[]>();
+  for (const candidate of candidates) {
+    candidatesBySegment.set(candidate.segment_id, [...(candidatesBySegment.get(candidate.segment_id) ?? []), candidate]);
+  }
+
+  const nextLines = transcript.segments.map((segment, segmentIndex) => {
+    const segmentCandidates = candidatesBySegment.get(segment.id) ?? [];
+    const line = lines[segmentIndex] ?? segment.text;
+    if (!segmentCandidates.length) return line;
+
+    const wordSpans = new Map<string, { start: number; end: number }>();
+    let searchFrom = 0;
+    for (const word of segment.words) {
+      const span = findWordSpan(line, word.text, searchFrom);
+      if (!span) continue;
+      wordSpans.set(word.id, span);
+      searchFrom = span.end;
+    }
+
+    const marksByPosition = new Map<number, string[]>();
+    for (const candidate of segmentCandidates) {
+      const span = wordSpans.get(candidate.word_id);
+      if (!span) continue;
+      if (line.slice(span.end, span.end + candidate.mark.length) === candidate.mark) continue;
+      marksByPosition.set(span.end, [...(marksByPosition.get(span.end) ?? []), candidate.mark]);
+    }
+
+    const insertions = Array.from(marksByPosition.entries()).map(([position, marks]) => ({
+      position,
+      mark: Array.from(new Set(marks)).join(''),
+    }));
+    if (!insertions.length) return line;
+
+    insertedCount += insertions.reduce((count, insertion) => count + insertion.mark.length, 0);
+    return insertions
+      .sort((left, right) => right.position - left.position)
+      .reduce((text, insertion) => `${text.slice(0, insertion.position)}${insertion.mark}${text.slice(insertion.position)}`, line);
+  });
+
+  if (lines.length > transcript.segments.length) {
+    nextLines.push(...lines.slice(transcript.segments.length));
+  }
+
+  return { text: nextLines.join('\n'), insertedCount };
 }
 
 function App() {
@@ -572,6 +633,38 @@ function App() {
     setHasUnsavedChanges(true);
     setPlaybackHighlightRange(null);
     setSaveMessage(`已插入 ${result.pauseCount} 个停顿预标注`);
+    window.setTimeout(() => setSaveMessage(''), 2500);
+  }
+
+  async function applyAcousticPreAnnotation() {
+    if (!transcript) return;
+    if (hasUnsavedChanges && !window.confirm('当前编辑器有未保存修改。声学预标注会在当前文本上插入候选标记，建议先保存。确定继续吗？')) {
+      return;
+    }
+    setSaveMessage('正在分析声学候选...');
+    const response = await fetch(`${API_BASE}/api/transcripts/${transcript.id}/acoustic-candidates`);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      window.alert(data.detail ?? '声学预标注失败');
+      setSaveMessage('');
+      return;
+    }
+    const data: { candidates: AcousticCandidate[] } = await response.json();
+    if (!data.candidates.length) {
+      window.alert('未发现可插入的声学预标注候选。');
+      setSaveMessage('');
+      return;
+    }
+    const result = buildAcousticPreAnnotatedText(transcript, draftText, data.candidates);
+    if (!result.insertedCount) {
+      window.alert('声学候选已存在，未重复插入。');
+      setSaveMessage('');
+      return;
+    }
+    setDraftText(result.text);
+    setHasUnsavedChanges(true);
+    setPlaybackHighlightRange(null);
+    setSaveMessage(`已插入 ${result.insertedCount} 个声学候选标记`);
     window.setTimeout(() => setSaveMessage(''), 2500);
   }
 
@@ -1089,6 +1182,7 @@ function App() {
                     播放时光标跟随
                   </label>
                   <button onClick={applyAutoPreAnnotation} disabled={!transcript}>自动预标注</button>
+                  <button onClick={applyAcousticPreAnnotation} disabled={!transcript}>声学预标注</button>
                   {saveMessage && <span>{saveMessage}</span>}
                   {transcript && <span>{transcript.segments.length} 个片段</span>}
                 </div>

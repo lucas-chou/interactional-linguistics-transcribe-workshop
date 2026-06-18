@@ -16,6 +16,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSock
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from .acoustic import analyze_acoustic_candidates, ensure_wav
 from .config import DATA_DIR, DB_PATH, MEDIA_DIR, WORK_DIR
 from .db import connect, init_db
 from .models import BatchCorpusDeleteRequest, BatchExportRequest, SearchResult, TextImportRequest, TranscribeRequest, TranscriptTagsUpdate, TranscriptUpdate
@@ -110,6 +111,15 @@ async def system_status() -> dict:
         whisperx_message = getattr(whisperx, "__version__", "installed")
     except Exception as exc:
         whisperx_message = str(exc)
+    parselmouth_ok = False
+    parselmouth_message = ""
+    try:
+        import parselmouth  # type: ignore
+
+        parselmouth_ok = True
+        parselmouth_message = getattr(parselmouth, "__version__", "installed")
+    except Exception as exc:
+        parselmouth_message = str(exc)
 
     with connect() as conn:
         media_count = conn.execute("SELECT COUNT(*) AS count FROM media").fetchone()["count"]
@@ -120,6 +130,7 @@ async def system_status() -> dict:
         "python": {"ok": True, "message": sys.version.split()[0]},
         "ffmpeg": {"ok": ffmpeg_ok, "message": ffmpeg_message},
         "whisperx": {"ok": whisperx_ok, "message": whisperx_message},
+        "parselmouth": {"ok": parselmouth_ok, "message": parselmouth_message},
         "database": {"ok": DB_PATH.exists(), "message": str(DB_PATH)},
         "media_dir": {"ok": MEDIA_DIR.exists(), "message": str(MEDIA_DIR)},
         "backend_port": {"ok": port_open(8765), "message": "127.0.0.1:8765"},
@@ -417,6 +428,60 @@ async def get_transcript(transcript_id: str) -> dict:
             (transcript_id,),
         ).fetchall()
         return {**dict(transcript), "segments": segment_items, "tags": [row["tag"] for row in tag_rows]}
+
+
+@app.get("/api/transcripts/{transcript_id}/acoustic-candidates")
+async def get_acoustic_candidates(transcript_id: str) -> dict:
+    with connect() as conn:
+        transcript = conn.execute(
+            """
+            SELECT transcripts.id, media.stored_path
+            FROM transcripts
+            JOIN media ON media.id = transcripts.media_id
+            WHERE transcripts.id = ?
+            """,
+            (transcript_id,),
+        ).fetchone()
+        if not transcript:
+            raise HTTPException(status_code=404, detail="转写结果不存在")
+        segments = conn.execute(
+            """
+            SELECT id, start_time, end_time, text, speaker, sort_index
+            FROM segments
+            WHERE transcript_id = ?
+            ORDER BY sort_index
+            """,
+            (transcript_id,),
+        ).fetchall()
+        segment_items = []
+        for segment in segments:
+            words = conn.execute(
+                """
+                SELECT id, start_time, end_time, text, confidence, sort_index
+                FROM words
+                WHERE segment_id = ?
+                ORDER BY sort_index
+                """,
+                (segment["id"],),
+            ).fetchall()
+            segment_dict = dict(segment)
+            segment_dict["words"] = [dict(word) for word in words]
+            segment_items.append(segment_dict)
+
+    if not segment_items:
+        return {"candidates": []}
+
+    source_path = Path(transcript["stored_path"])
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail="媒体文件不存在")
+
+    wav_path = WORK_DIR / "acoustic" / f"{transcript_id}.wav"
+    try:
+        ensure_wav(source_path, wav_path)
+        candidates = analyze_acoustic_candidates(wav_path, segment_items)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"candidates": candidates}
 
 
 def get_export_data(conn, transcript_id: str) -> tuple[dict, list[dict], list[str]]:
