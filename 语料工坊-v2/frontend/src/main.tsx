@@ -702,8 +702,8 @@ function App() {
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <h1>语料工坊</h1>
-          <p>本地 WhisperX 转写、对齐、标注、编辑与语料库管理</p>
+          <h1>语料工坊2.0</h1>
+          <p>本地 WhisperX 模型转写、对齐、标注、编辑与语料库管理</p>
         </div>
         <div className="topbar-actions">
           <button className={view === 'workbench' ? 'tab-button active' : 'tab-button'} onClick={() => setView('workbench')}>工作台</button>
@@ -1104,7 +1104,7 @@ function App() {
       )}
 
       <footer className="corpus-footer">
-        本程序由河北大学周焱设计搭建，如果你有改进的想法可联系 zhouyanwork@163.com
+        本程序由河北大学周焱设计搭建，如果你有改进的想法可联系 zhouyanwork@163.com。
       </footer>
     </main>
   );
