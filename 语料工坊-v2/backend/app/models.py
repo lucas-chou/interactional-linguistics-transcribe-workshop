@@ -54,6 +54,10 @@ class BatchExportRequest(BaseModel):
     format: str = "txt"
 
 
+class BatchCorpusDeleteRequest(BaseModel):
+    transcript_ids: list[str]
+
+
 class TextImportRequest(BaseModel):
     media_id: str
     text: str

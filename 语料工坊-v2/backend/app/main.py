@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import DATA_DIR, DB_PATH, MEDIA_DIR, WORK_DIR
 from .db import connect, init_db
-from .models import BatchExportRequest, SearchResult, TextImportRequest, TranscribeRequest, TranscriptTagsUpdate, TranscriptUpdate
+from .models import BatchCorpusDeleteRequest, BatchExportRequest, SearchResult, TextImportRequest, TranscribeRequest, TranscriptTagsUpdate, TranscriptUpdate
 from .storage import get_media, save_upload
 from .storage import utc_now
 from .tasks import task_manager
@@ -614,6 +614,32 @@ async def save_transcript_to_corpus(transcript_id: str) -> dict:
         )
         conn.execute("UPDATE transcripts SET corpus_saved_at = ? WHERE id = ?", (utc_now(), transcript_id))
     return {"ok": True}
+
+
+@app.post("/api/corpus/delete")
+async def delete_corpus_entries(request: BatchCorpusDeleteRequest) -> dict:
+    transcript_ids = []
+    seen = set()
+    for transcript_id in request.transcript_ids:
+        if transcript_id not in seen:
+            transcript_ids.append(transcript_id)
+            seen.add(transcript_id)
+    if not transcript_ids:
+        raise HTTPException(status_code=400, detail="请先选择要删除的语料")
+
+    placeholders = ",".join("?" for _ in transcript_ids)
+    with connect() as conn:
+        deleted = conn.execute(
+            f"SELECT COUNT(*) AS count FROM transcripts WHERE id IN ({placeholders}) AND corpus_saved_at IS NOT NULL",
+            transcript_ids,
+        ).fetchone()["count"]
+        for transcript_id in transcript_ids:
+            conn.execute("DELETE FROM corpus_fts WHERE transcript_id = ?", (transcript_id,))
+        conn.execute(
+            f"UPDATE transcripts SET corpus_saved_at = NULL WHERE id IN ({placeholders})",
+            transcript_ids,
+        )
+    return {"ok": True, "deleted": deleted}
 
 
 @app.websocket("/ws/tasks/{task_id}")

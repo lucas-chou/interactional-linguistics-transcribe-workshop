@@ -677,6 +677,27 @@ function App() {
     URL.revokeObjectURL(url);
   }
 
+  async function deleteSelectedResults() {
+    if (!selectedResultIds.length) {
+      window.alert('请先选择要删除的语料');
+      return;
+    }
+    if (!window.confirm(`确定从语料库删除已选的 ${selectedResultIds.length} 条语料吗？这不会删除媒体文件和工作台转写。`)) {
+      return;
+    }
+    const response = await fetch(`${API_BASE}/api/corpus/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transcript_ids: selectedResultIds }),
+    });
+    if (!response.ok) {
+      window.alert('删除语料失败');
+      return;
+    }
+    setSelectedResultIds([]);
+    await Promise.all([search(), loadMediaItems(), loadTags()]);
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -727,9 +748,10 @@ function App() {
             <div className="batch-actions">
               <span>已选 {selectedResultIds.length} 条</span>
               <button onClick={() => setSelectedResultIds(results.map((result) => result.transcript_id))} disabled={!results.length}>全选</button>
-              <button onClick={() => setSelectedResultIds([])} disabled={!selectedResultIds.length}>清空</button>
+              <button onClick={() => setSelectedResultIds([])} disabled={!selectedResultIds.length}>取消选择</button>
               <button onClick={() => exportSelectedResults('txt')} disabled={!selectedResultIds.length}>批量导出 TXT</button>
               <button onClick={() => exportSelectedResults('csv')} disabled={!selectedResultIds.length}>批量导出 CSV</button>
+              <button className="danger" onClick={deleteSelectedResults} disabled={!selectedResultIds.length}>删除已选</button>
             </div>
             <ul className="search-results corpus-results">
               {results.map((result) => (
