@@ -1101,13 +1101,13 @@ function App() {
         <section className="workspace">
           <aside className="sidebar">
             <div className="panel">
-              <h2>导入文件</h2>
+              <h2>导入音视频文件</h2>
               <input type="file" accept="audio/*,video/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
               <button onClick={upload} disabled={!file}>导入</button>
               <div className="inline-divider" />
-              <label className="mini-label">导入外部转写文本</label>
+              <label className="mini-label">导入已有转写文本</label>
               <input type="file" accept=".txt,text/plain" onChange={(event) => setTextFile(event.target.files?.[0] ?? null)} />
-              <button onClick={importTextFile} disabled={!selectedMedia || !textFile}>导入文本</button>
+              <button onClick={importTextFile} disabled={!selectedMedia || !textFile}>导入</button>
             </div>
 
             <div className="panel">
