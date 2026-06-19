@@ -162,6 +162,15 @@ async def download_backup(filename: str) -> FileResponse:
     return FileResponse(archive_path, filename=archive_path.name, media_type="application/zip")
 
 
+@app.delete("/api/backups/{filename}")
+async def delete_backup(filename: str) -> dict:
+    archive_path = (BACKUP_DIR / filename).resolve()
+    if not str(archive_path).startswith(str(BACKUP_DIR.resolve())) or archive_path.suffix.lower() != ".zip" or not archive_path.exists():
+        raise HTTPException(status_code=404, detail="备份文件不存在")
+    archive_path.unlink()
+    return {"ok": True}
+
+
 @app.post("/api/backups/restore")
 async def restore_backup(file: UploadFile = File(...)) -> dict:
     if not file.filename.lower().endswith(".zip"):

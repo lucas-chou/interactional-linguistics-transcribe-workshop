@@ -376,6 +376,8 @@ function App() {
   const [playbackHighlightRange, setPlaybackHighlightRange] = useState<{ start: number; end: number } | null>(null);
   const [openMediaMenuId, setOpenMediaMenuId] = useState('');
   const [mediaMenuPosition, setMediaMenuPosition] = useState({ top: 0, left: 0 });
+  const [openBackupMenuId, setOpenBackupMenuId] = useState('');
+  const [backupMenuPosition, setBackupMenuPosition] = useState({ top: 0, left: 0 });
   const [currentTime, setCurrentTime] = useState(0);
   const [cursorFollowsPlayback, setCursorFollowsPlayback] = useState(true);
   const [saveMessage, setSaveMessage] = useState('');
@@ -838,6 +840,20 @@ function App() {
 
   function downloadBackup(filename: string) {
     window.open(`${API_BASE}/api/backups/${encodeURIComponent(filename)}`, '_blank');
+    setOpenBackupMenuId('');
+  }
+
+  async function deleteBackup(filename: string) {
+    if (!window.confirm(`确定删除备份文件 ${filename} 吗？`)) return;
+    const response = await fetch(`${API_BASE}/api/backups/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      window.alert(data.detail ?? '删除备份失败');
+      return;
+    }
+    setOpenBackupMenuId('');
+    setSystemMessage(`备份已删除：${filename}`);
+    await loadBackups();
   }
 
   async function loadCleanupPreview() {
@@ -1036,10 +1052,38 @@ function App() {
             <h3 className="section-title">已有备份</h3>
             <ul className="search-results corpus-results">
               {backups.map((backup) => (
-                <li key={backup.filename}>
-                  <button onClick={() => downloadBackup(backup.filename)}>下载</button>
-                  <p>{backup.filename}</p>
-                  <small>{Math.round(backup.size / 1024)} KB</small>
+                <li key={backup.filename} className="backup-row">
+                  <div className="backup-info">
+                    <p>{backup.filename}</p>
+                    <small>{Math.round(backup.size / 1024)} KB</small>
+                  </div>
+                  <div className="media-menu">
+                    <button
+                      className="more-button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (openBackupMenuId === backup.filename) {
+                          setOpenBackupMenuId('');
+                          return;
+                        }
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setBackupMenuPosition({
+                          top: Math.min(rect.bottom + 6, window.innerHeight - 92),
+                          left: Math.max(8, Math.min(rect.right - 124, window.innerWidth - 132)),
+                        });
+                        setOpenBackupMenuId(backup.filename);
+                      }}
+                      aria-label="备份操作"
+                    >
+                      {'\u22EF'}
+                    </button>
+                    {openBackupMenuId === backup.filename && (
+                      <div className="media-dropdown" style={{ top: backupMenuPosition.top, left: backupMenuPosition.left }}>
+                        <button onClick={() => downloadBackup(backup.filename)}>下载</button>
+                        <button className="danger ghost-danger" onClick={() => deleteBackup(backup.filename)}>删除</button>
+                      </div>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>

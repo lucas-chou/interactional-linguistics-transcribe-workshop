@@ -630,6 +630,21 @@ mark {
   margin-top: 16px;
 }
 
+.backup-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.backup-info {
+  min-width: 0;
+}
+
+.backup-info p {
+  overflow-wrap: anywhere;
+}
+
 .corpus-result-item {
   display: grid;
   grid-template-columns: auto 1fr;
