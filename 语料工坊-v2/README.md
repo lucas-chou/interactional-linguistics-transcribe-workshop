@@ -1,57 +1,105 @@
 # 语料工坊 v2
 
-本项目是语料工坊的新架构版本：Web 前端 + FastAPI 本地后端 + WhisperX + SQLite。
+语料工坊 v2 是一个本地语料转写、编辑、标注、入库和检索工具。
 
 ## 架构
 
 ```text
 frontend/  React + Vite + TypeScript
-backend/   FastAPI + WhisperX + SQLite
-data/      本地媒体、任务缓存、SQLite 数据库
+backend/   FastAPI + WhisperX + Parselmouth + SQLite
 ```
 
-## 当前目标
+本程序默认在本地运行：
 
-- 本地导入音视频
-- WhisperX 转写与词级对齐
-- 转写结果入库
-- SQLite FTS5 全文搜索
-- WebSocket 推送任务进度
+- 前端：`http://127.0.0.1:5173`
+- 后端：`http://127.0.0.1:8765`
+- 数据：`backend/data/`
 
-## 后端启动
+## 主要功能
+
+- 本地导入音视频文件
+- WhisperX 转写和词级对齐
+- 转写文本编辑和手动标注
+- 自动预标注候选
+- 自定义标签
+- 语料库全文检索
+- TXT / CSV 导出
+- 本地备份和恢复
+- 数据清理和状态检查
+
+## 首次安装
+
+在新电脑或分发包中，先双击：
+
+```text
+安装依赖.cmd
+```
+
+该脚本会：
+
+- 创建后端 Python 虚拟环境 `backend/.venv/`
+- 安装后端依赖，包括 WhisperX 和 Parselmouth
+- 安装前端依赖 `frontend/node_modules/`
+- 检查 FFmpeg 是否可用
+
+使用者电脑需要提前安装：
+
+- Python 3.10 或 3.11
+- Node.js LTS
+- FFmpeg
+
+## 日常启动
+
+双击：
+
+```text
+启动语料工坊.cmd
+```
+
+或在 PowerShell 中运行：
 
 ```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python -m app.main
+.\start.ps1
 ```
 
-服务默认运行在 `http://127.0.0.1:8765`。
+启动后会自动打开浏览器。
 
-## 前端启动
+## 打包分发
 
-```powershell
-cd frontend
-npm install
-npm run dev
+开发者双击：
+
+```text
+打包分发.cmd
 ```
 
-前端默认运行在 `http://127.0.0.1:5173`。
+脚本会生成：
 
-## 说明
+```text
+release/语料工坊-v2-release/
+release/语料工坊-v2-release.zip
+```
 
-v2 不再修改旧 Electron 打包文件。所有转写任务由后端统一调度，前端只负责展示状态与编辑结果。
+分发包不会包含个人数据、媒体文件、数据库、虚拟环境、`node_modules`、构建产物和日志。
 
-## 启动方式
+详细说明见：
 
-- 双击 `启动语料工坊.cmd`
-- 或在 PowerShell 中运行 `.[0mstart.ps1`
-- 脚本会自动检查后端虚拟环境、启动后端和前端，并打开浏览器
-- 默认地址：`http://127.0.0.1:5173`
+```text
+分发说明.md
+```
 
-## 依赖
+## 数据说明
 
-- 后端需要先安装过 `backend\.venv`
-- 前端如果没有 `node_modules`，脚本会自动执行 `npm install`
+用户数据保存在：
+
+```text
+backend/data/
+```
+
+其中：
+
+- `corpus.db` 是数据库
+- `media/` 保存导入后的音视频副本
+- `work/` 保存临时任务文件
+- `backups/` 保存系统界面创建的备份
+
+发布到 GitHub 或分发给他人时，不要上传 `backend/data/`。
