@@ -450,6 +450,47 @@ button.danger {
   width: auto;
 }
 
+.preannotation-help {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  cursor: help;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.preannotation-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: 300px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #0f172a;
+  box-shadow: 0 12px 30px rgb(15 23 42 / 20%);
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.6;
+  opacity: 0;
+  pointer-events: none;
+  text-align: left;
+  transform: translateY(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.preannotation-help:hover .preannotation-tooltip,
+.preannotation-help:focus .preannotation-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .full-transcript {
   min-height: 360px;
   max-height: calc(100vh - 420px);

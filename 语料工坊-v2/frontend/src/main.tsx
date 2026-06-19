@@ -1189,6 +1189,12 @@ function App() {
                     播放时光标跟随
                   </label>
                   <button onClick={applyPreAnnotation} disabled={!transcript}>自动预标注</button>
+                  <span className="preannotation-help" tabIndex={0} aria-label="自动预标注说明">
+                    ?
+                    <span className="preannotation-tooltip">
+                      自动预标注包括：停顿 .. / ... / ...(N)，无缝连接 (0)，延长音 =，升降调 / 和 \，重音 !，语速 &lt;A&gt;/&lt;L&gt;。这些都是候选标注，需要人工复核。
+                    </span>
+                  </span>
                   {saveMessage && <span>{saveMessage}</span>}
                   {transcript && <span>{transcript.segments.length} 个片段</span>}
                 </div>
