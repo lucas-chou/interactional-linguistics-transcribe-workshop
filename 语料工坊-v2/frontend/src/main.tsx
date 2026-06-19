@@ -389,6 +389,7 @@ function App() {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [systemMessage, setSystemMessage] = useState('');
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [systemStatusChecking, setSystemStatusChecking] = useState(false);
   const [cleanupPreview, setCleanupPreview] = useState<{ missing_media_records: string[]; orphan_media_files: string[]; work_dirs: string[] } | null>(null);
   const [settings, setSettings] = useState({
     model: 'base',
@@ -790,8 +791,20 @@ function App() {
   }
 
   async function loadSystemStatus() {
-    const response = await fetch(`${API_BASE}/api/system/status`);
-    setSystemStatus(await response.json());
+    setSystemStatusChecking(true);
+    setSystemMessage('正在重新检查系统状态...');
+    try {
+      const response = await fetch(`${API_BASE}/api/system/status`);
+      if (!response.ok) {
+        throw new Error('系统状态检查失败');
+      }
+      setSystemStatus(await response.json());
+      setSystemMessage(`系统状态已更新：${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+      setSystemMessage(error instanceof Error ? error.message : '系统状态检查失败');
+    } finally {
+      setSystemStatusChecking(false);
+    }
   }
 
   async function createBackup() {
@@ -991,7 +1004,9 @@ function App() {
               <span>备份、恢复与维护</span>
             </div>
             <div className="system-status-header">
-              <button onClick={loadSystemStatus}>重新检查状态</button>
+              <button onClick={loadSystemStatus} disabled={systemStatusChecking}>
+                {systemStatusChecking ? '检查中...' : '重新检查状态'}
+              </button>
               {systemStatus?.counts && (
                 <span>媒体 {systemStatus.counts.media} · 转写 {systemStatus.counts.transcripts} · 入库 {systemStatus.counts.corpus}</span>
               )}
