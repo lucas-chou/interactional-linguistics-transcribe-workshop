@@ -34,7 +34,7 @@ async def run_transcription_task(task_id: str, request: TranscribeRequest) -> No
         await _convert_to_wav(Path(media["stored_path"]), wav_path)
         await task_manager.update(task_id, stage="transcribe", progress=0.2, message="本地模型转写中")
 
-        raw_result = await _run_whisperx_script(wav_path, result_path, request)
+        raw_result = await _run_whisperx_script(task_id, wav_path, result_path, request)
         await task_manager.update(task_id, stage="persist", progress=0.9, message="写入语料库")
 
         transcript_id = _persist_result(request.media_id, request, raw_result)
@@ -86,7 +86,8 @@ def _convert_to_wav_sync(source: Path, target: Path) -> None:
         raise RuntimeError(process.stderr or process.stdout or "ffmpeg 转换失败")
 
 
-async def _run_whisperx_script(wav_path: Path, result_path: Path, request: TranscribeRequest) -> dict[str, Any]:
+async def _run_whisperx_script(task_id: str, wav_path: Path, result_path: Path, request: TranscribeRequest) -> dict[str, Any]:
+    progress_path = result_path.with_suffix(".progress.json")
     script = f"""
 import json
 import os
@@ -134,12 +135,18 @@ try:
 
     audio_file = {str(wav_path)!r}
     result_file = {str(result_path)!r}
+    progress_file = {str(progress_path)!r}
     requested_device = {request.device!r}
     device = "cuda" if requested_device == "auto" and torch.cuda.is_available() else ("cpu" if requested_device == "auto" else requested_device)
     requested_compute_type = {request.compute_type!r}
     compute_type = "float16" if requested_compute_type == "auto" and device == "cuda" else ("int8" if requested_compute_type == "auto" else requested_compute_type)
     language = None if {request.language!r} == "auto" else {request.language!r}
 
+    def write_progress(progress, message, stage="transcribe"):
+        with open(progress_file, "w", encoding="utf-8") as progress_output:
+            json.dump({{"progress": progress, "message": message, "stage": stage}}, progress_output, ensure_ascii=False)
+
+    write_progress(0.22, "正在加载本地模型")
     model = WhisperModel(
         {request.model!r},
         device=device,
@@ -147,6 +154,7 @@ try:
         download_root=None,
         local_files_only=False,
     )
+    write_progress(0.25, "模型加载完成，开始转写")
     segments_iter, info = model.transcribe(
         audio_file,
         language=language,
@@ -156,6 +164,7 @@ try:
         vad_filter=False,
     )
     segments = []
+    duration = float(getattr(info, "duration", 0) or 0)
     for segment in segments_iter:
         words = []
         for word in segment.words or []:
@@ -171,9 +180,15 @@ try:
             "text": segment.text,
             "words": words,
         }})
+        if duration > 0:
+            segment_progress = min(0.8, 0.25 + (float(segment.end or 0) / duration) * 0.55)
+            write_progress(segment_progress, f"正在转写：{{float(segment.end or 0):.1f}} / {{duration:.1f}} 秒")
+        else:
+            write_progress(0.35, f"正在转写：已生成 {{len(segments)}} 个片段")
     result = {{"segments": segments, "language": info.language}}
 
     if {request.align!r}:
+        write_progress(0.82, "正在进行 WhisperX 精细对齐", "align")
         import whisperx
         import whisperx.alignment as whisperx_alignment
         original_nltk_load = whisperx_alignment.nltk_load
@@ -193,6 +208,7 @@ try:
         audio = whisperx.load_audio(audio_file)
         align_model, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
         result = whisperx.align(result["segments"], align_model, metadata, audio, device, return_char_alignments=True)
+        write_progress(0.88, "精细对齐完成", "align")
 
     result["language"] = result.get("language")
     result["engine"] = "whisperx" if {request.align!r} else "faster-whisper"
@@ -202,30 +218,73 @@ try:
 
     with open(result_file, "w", encoding="utf-8") as output:
         json.dump(result, output, ensure_ascii=False)
+    write_progress(0.9, "转写结果生成完成", "persist")
 except Exception:
     traceback.print_exc()
     raise
 """
     script_path = result_path.with_suffix(".py")
     script_path.write_text(script, encoding="utf-8")
-    return await asyncio.to_thread(_run_whisperx_script_sync, script_path, result_path)
+    return await _run_whisperx_script_process(task_id, script_path, result_path, progress_path)
 
 
-def _run_whisperx_script_sync(script_path: Path, result_path: Path) -> dict[str, Any]:
-    process = subprocess.run(
-        [
+async def _read_process_stream(stream: asyncio.StreamReader | None, lines: list[str]) -> None:
+    if stream is None:
+        return
+    while True:
+        line = await stream.readline()
+        if not line:
+            break
+        lines.append(line.decode("utf-8", errors="replace"))
+
+
+async def _run_whisperx_script_process(task_id: str, script_path: Path, result_path: Path, progress_path: Path) -> dict[str, Any]:
+    process = await asyncio.create_subprocess_exec(
         sys.executable,
         str(script_path),
-        ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
         env={**os.environ, "PYTHONIOENCODING": "utf-8", "HF_ENDPOINT": DEFAULT_HF_ENDPOINT},
-        timeout=15 * 60,
     )
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+    stdout_task = asyncio.create_task(_read_process_stream(process.stdout, stdout_lines))
+    stderr_task = asyncio.create_task(_read_process_stream(process.stderr, stderr_lines))
+    last_progress_payload = ""
+    deadline = asyncio.get_running_loop().time() + 6 * 60 * 60
+
+    while True:
+        if progress_path.exists():
+            progress_payload = progress_path.read_text(encoding="utf-8")
+            if progress_payload and progress_payload != last_progress_payload:
+                last_progress_payload = progress_payload
+                try:
+                    progress_data = json.loads(progress_payload)
+                    await task_manager.update(
+                        task_id,
+                        stage=progress_data.get("stage", "transcribe"),
+                        progress=float(progress_data.get("progress", 0.2)),
+                        message=progress_data.get("message", "本地模型转写中"),
+                    )
+                except Exception:
+                    pass
+
+        if process.returncode is not None:
+            break
+        if asyncio.get_running_loop().time() > deadline:
+            process.kill()
+            await process.wait()
+            raise RuntimeError("转写超时：任务运行超过 6 小时")
+        try:
+            await asyncio.wait_for(process.wait(), timeout=1)
+        except asyncio.TimeoutError:
+            continue
+
+    await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
     if process.returncode != 0:
-        raise RuntimeError(process.stderr or process.stdout or "WhisperX 子进程失败")
+        stderr = "".join(stderr_lines).strip()
+        stdout = "".join(stdout_lines).strip()
+        raise RuntimeError(stderr or stdout or "WhisperX 子进程失败")
     return json.loads(result_path.read_text(encoding="utf-8"))
 
 
