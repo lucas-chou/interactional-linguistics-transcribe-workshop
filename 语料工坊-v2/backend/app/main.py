@@ -23,6 +23,7 @@ from .models import BatchCorpusDeleteRequest, BatchExportRequest, SearchResult, 
 from .storage import get_media, save_upload
 from .storage import utc_now
 from .tasks import task_manager
+from .text_normalize import to_simplified_chinese
 from .transcription import run_transcription_task
 
 
@@ -367,6 +368,8 @@ async def import_text_transcript(request: TextImportRequest) -> dict:
     text = request.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="文本不能为空")
+    if request.language is None or request.language.startswith("zh"):
+        text = to_simplified_chinese(text)
 
     transcript_id = str(uuid.uuid4())
     lines = [line.strip() for line in text.splitlines() if line.strip()]

@@ -4,3 +4,4 @@ python-multipart==0.0.20
 pydantic==2.10.4
 whisperx==3.8.6
 praat-parselmouth==0.4.7
+opencc-python-reimplemented==0.1.7

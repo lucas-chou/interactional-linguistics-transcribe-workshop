@@ -13,6 +13,7 @@ from .db import connect
 from .models import TranscribeRequest
 from .storage import get_media
 from .tasks import task_manager
+from .text_normalize import should_force_simplified, to_simplified_chinese
 
 
 def utc_now() -> str:
@@ -291,6 +292,15 @@ async def _run_whisperx_script_process(task_id: str, script_path: Path, result_p
 def _persist_result(media_id: str, request: TranscribeRequest, result: dict[str, Any]) -> str:
     transcript_id = str(uuid.uuid4())
     segments = result.get("segments") or []
+    force_simplified = should_force_simplified(request, result.get("language"))
+    if force_simplified:
+        for segment in segments:
+            segment["text"] = to_simplified_chinese(segment.get("text") or "")
+            for word in segment.get("words") or []:
+                if "word" in word:
+                    word["word"] = to_simplified_chinese(word.get("word") or "")
+                if "text" in word:
+                    word["text"] = to_simplified_chinese(word.get("text") or "")
     text = "\n".join((segment.get("text") or "").strip() for segment in segments).strip()
 
     with connect() as conn:
