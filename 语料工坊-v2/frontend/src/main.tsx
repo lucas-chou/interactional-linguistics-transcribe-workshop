@@ -1160,7 +1160,16 @@ function App() {
             <div className="panel">
               <h2>转写设置</h2>
               <div className="setting-with-help">
-                <label>模型
+                <label>
+                  <span className="label-with-help">
+                    模型
+                    <span className="preannotation-help model-help" tabIndex={0} aria-label="模型说明">
+                      ?
+                      <span className="preannotation-tooltip model-tooltip">
+                        tiny 最快但准确率最低；base 较快，适合快速试转；small 平衡速度和准确率；medium 准确率更高但更慢；large-v3 准确率最高、耗时和资源占用最大。长视频或 CPU 环境建议先用 base / small。
+                      </span>
+                    </span>
+                  </span>
                   <select value={settings.model} onChange={(event) => setSettings({ ...settings, model: event.target.value })}>
                     <option value="tiny">tiny</option>
                     <option value="base">base</option>
@@ -1169,12 +1178,6 @@ function App() {
                     <option value="large-v3">large-v3</option>
                   </select>
                 </label>
-                <span className="preannotation-help model-help" tabIndex={0} aria-label="模型说明">
-                  ?
-                  <span className="preannotation-tooltip model-tooltip">
-                    tiny 最快但准确率最低；base 较快，适合快速试转；small 平衡速度和准确率；medium 准确率更高但更慢；large-v3 准确率最高、耗时和资源占用最大。长视频或 CPU 环境建议先用 base / small。
-                  </span>
-                </span>
               </div>
               <label>语言
                 <select value={settings.language} onChange={(event) => setSettings({ ...settings, language: event.target.value })}>

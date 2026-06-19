@@ -492,14 +492,13 @@ button.danger {
 }
 
 .setting-with-help {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: end;
-  gap: 8px;
+  display: block;
 }
 
-.model-help {
-  margin-bottom: 10px;
+.label-with-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .model-tooltip {
