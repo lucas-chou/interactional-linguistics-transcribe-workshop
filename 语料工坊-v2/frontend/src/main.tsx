@@ -129,11 +129,13 @@ type Transcript = {
 type AcousticCandidate = {
   kind: string;
   segment_id: string;
-  word_id: string;
+  word_id?: string;
   text: string;
   start_time: number;
   end_time: number;
   mark: string;
+  end_mark?: string;
+  placement?: 'after' | 'before' | 'wrap_segment';
   reason: string;
   confidence: number;
 };
@@ -247,6 +249,7 @@ function hasPauseMarkAt(line: string, position: number) {
 
 function buildAutoPreAnnotatedText(transcript: Transcript, currentText: string) {
   let pauseCount = 0;
+  let seamlessCount = 0;
   let unmatchedCount = 0;
   const lines = currentText.split('\n');
   const nextLines = transcript.segments.map((segment, segmentIndex) => {
@@ -278,11 +281,22 @@ function buildAutoPreAnnotatedText(transcript: Transcript, currentText: string) 
       .reduce((text, insertion) => `${text.slice(0, insertion.position)}${insertion.mark}${text.slice(insertion.position)}`, line);
   });
 
+  for (let segmentIndex = 0; segmentIndex < transcript.segments.length - 1; segmentIndex += 1) {
+    const currentWords = transcript.segments[segmentIndex].words;
+    const nextWords = transcript.segments[segmentIndex + 1].words;
+    if (!currentWords.length || !nextWords.length) continue;
+    const gap = nextWords[0].start_time - currentWords[currentWords.length - 1].end_time;
+    if (gap >= 0 && gap <= 0.15 && !nextLines[segmentIndex + 1].startsWith('(0)')) {
+      nextLines[segmentIndex + 1] = `(0)${nextLines[segmentIndex + 1]}`;
+      seamlessCount += 1;
+    }
+  }
+
   if (lines.length > transcript.segments.length) {
     nextLines.push(...lines.slice(transcript.segments.length));
   }
 
-  return { text: nextLines.join('\n'), pauseCount, unmatchedCount };
+  return { text: nextLines.join('\n'), pauseCount, seamlessCount, unmatchedCount };
 }
 
 function buildAcousticPreAnnotatedText(transcript: Transcript, currentText: string, candidates: AcousticCandidate[]) {
@@ -297,6 +311,7 @@ function buildAcousticPreAnnotatedText(transcript: Transcript, currentText: stri
     const segmentCandidates = candidatesBySegment.get(segment.id) ?? [];
     const line = lines[segmentIndex] ?? segment.text;
     if (!segmentCandidates.length) return line;
+    const wrapCandidate = segmentCandidates.find((candidate) => candidate.placement === 'wrap_segment' && candidate.end_mark);
 
     const wordSpans = new Map<string, { start: number; end: number }>();
     let searchFrom = 0;
@@ -309,22 +324,29 @@ function buildAcousticPreAnnotatedText(transcript: Transcript, currentText: stri
 
     const marksByPosition = new Map<number, string[]>();
     for (const candidate of segmentCandidates) {
+      if (candidate.placement === 'wrap_segment' || !candidate.word_id) continue;
       const span = wordSpans.get(candidate.word_id);
       if (!span) continue;
-      if (line.slice(span.end, span.end + candidate.mark.length) === candidate.mark) continue;
-      marksByPosition.set(span.end, [...(marksByPosition.get(span.end) ?? []), candidate.mark]);
+      const position = candidate.placement === 'before' ? span.start : span.end;
+      if (line.slice(position, position + candidate.mark.length) === candidate.mark) continue;
+      marksByPosition.set(position, [...(marksByPosition.get(position) ?? []), candidate.mark]);
     }
 
     const insertions = Array.from(marksByPosition.entries()).map(([position, marks]) => ({
       position,
       mark: Array.from(new Set(marks)).join(''),
     }));
-    if (!insertions.length) return line;
+    if (!insertions.length && !wrapCandidate) return line;
 
-    insertedCount += insertions.reduce((count, insertion) => count + insertion.mark.length, 0);
-    return insertions
+    insertedCount += insertions.length;
+    let annotatedLine = insertions
       .sort((left, right) => right.position - left.position)
       .reduce((text, insertion) => `${text.slice(0, insertion.position)}${insertion.mark}${text.slice(insertion.position)}`, line);
+    if (wrapCandidate?.end_mark && !annotatedLine.startsWith(wrapCandidate.mark) && !annotatedLine.endsWith(wrapCandidate.end_mark)) {
+      annotatedLine = `${wrapCandidate.mark}${annotatedLine}${wrapCandidate.end_mark}`;
+      insertedCount += 1;
+    }
+    return annotatedLine;
   });
 
   if (lines.length > transcript.segments.length) {
@@ -625,14 +647,15 @@ function App() {
       return;
     }
     const result = buildAutoPreAnnotatedText(transcript, draftText);
-    if (!result.pauseCount) {
-      window.alert('未发现可自动插入的停顿标记。该功能需要 WhisperX 词级时间戳。');
+    const totalCount = result.pauseCount + result.seamlessCount;
+    if (!totalCount) {
+      window.alert('未发现可自动插入的停顿或无缝连接标记。该功能需要 WhisperX 词级时间戳。');
       return;
     }
     setDraftText(result.text);
     setHasUnsavedChanges(true);
     setPlaybackHighlightRange(null);
-    setSaveMessage(`已插入 ${result.pauseCount} 个停顿预标注`);
+    setSaveMessage(`已插入 ${totalCount} 个停顿/无缝连接预标注`);
     window.setTimeout(() => setSaveMessage(''), 2500);
   }
 
