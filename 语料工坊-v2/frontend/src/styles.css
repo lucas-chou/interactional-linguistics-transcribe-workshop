@@ -491,6 +491,23 @@ button.danger {
   transform: translateY(0);
 }
 
+.setting-with-help {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.model-help {
+  margin-bottom: 10px;
+}
+
+.model-tooltip {
+  right: auto;
+  left: 0;
+  width: 340px;
+}
+
 .full-transcript {
   min-height: 360px;
   max-height: calc(100vh - 420px);
