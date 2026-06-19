@@ -29,19 +29,6 @@ backend/   FastAPI + WhisperX + Parselmouth + SQLite
 
 ## 首次安装
 
-在新电脑或分发包中，先双击：
-
-```text
-安装依赖.cmd
-```
-
-该脚本会：
-
-- 创建后端 Python 虚拟环境 `backend/.venv/`
-- 安装后端依赖，包括 WhisperX 和 Parselmouth
-- 安装前端依赖 `frontend/node_modules/`
-- 检查 FFmpeg 是否可用
-
 使用者电脑需要提前安装以下基础环境：
 
 ### 1. Python 3.10 或 3.11
@@ -87,6 +74,19 @@ https://ffmpeg.org/download.html
 - 安装后重新打开命令行，运行 `ffmpeg -version`，能显示版本信息即安装成功。
 
 完成以上三项后，再双击 `安装依赖.cmd`。
+
+在新电脑或分发包中，先双击：
+
+```text
+安装依赖.cmd
+```
+
+该脚本会：
+
+- 创建后端 Python 虚拟环境 `backend/.venv/`
+- 安装后端依赖，包括 WhisperX 和 Parselmouth
+- 安装前端依赖 `frontend/node_modules/`
+- 检查 FFmpeg 是否可用
 
 ## 日常启动
 
