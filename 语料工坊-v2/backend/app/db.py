@@ -20,8 +20,6 @@ CREATE TABLE IF NOT EXISTS media (
     created_at TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_media_content_hash ON media(content_hash);
-
 CREATE TABLE IF NOT EXISTS transcripts (
     id TEXT PRIMARY KEY,
     media_id TEXT NOT NULL,
