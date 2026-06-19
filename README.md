@@ -42,11 +42,51 @@ backend/   FastAPI + WhisperX + Parselmouth + SQLite
 - 安装前端依赖 `frontend/node_modules/`
 - 检查 FFmpeg 是否可用
 
-使用者电脑需要提前安装：
+使用者电脑需要提前安装以下基础环境：
 
-- Python 3.10 或 3.11
-- Node.js LTS
-- FFmpeg
+### 1. Python 3.10 或 3.11
+
+官方下载地址：
+
+```text
+https://www.python.org/downloads/
+```
+
+安装时注意：
+
+- 推荐安装 Python 3.10 或 3.11。
+- Windows 安装器第一页务必勾选 `Add python.exe to PATH`。
+- 安装后重新打开命令行，运行 `python --version`，能显示版本号即安装成功。
+
+### 2. Node.js LTS
+
+官方下载地址：
+
+```text
+https://nodejs.org/en/download
+```
+
+安装时注意：
+
+- 选择 LTS 版本。
+- Windows 用户通常下载 `.msi` 安装器。
+- 安装后重新打开命令行，运行 `node -v` 和 `npm -v`，能显示版本号即安装成功。
+
+### 3. FFmpeg
+
+官方下载说明：
+
+```text
+https://ffmpeg.org/download.html
+```
+
+安装时注意：
+
+- Windows 用户需要下载已经编译好的 FFmpeg 可执行文件。
+- 解压后把 `ffmpeg.exe` 所在的 `bin` 目录加入系统 `PATH`。
+- 安装后重新打开命令行，运行 `ffmpeg -version`，能显示版本信息即安装成功。
+
+完成以上三项后，再双击 `安装依赖.cmd`。
 
 ## 日常启动
 
