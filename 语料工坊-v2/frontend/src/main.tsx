@@ -532,6 +532,9 @@ function App() {
     const data = await response.json();
     const items = await loadMediaItems();
     await selectMedia(items.find((item) => item.id === data.id) ?? data);
+    if (data.duplicate) {
+      window.alert('该文件已经导入过，已直接选中已有媒体。');
+    }
   }
 
   async function transcribe() {

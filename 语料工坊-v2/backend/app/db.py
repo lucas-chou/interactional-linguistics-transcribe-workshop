@@ -13,11 +13,14 @@ CREATE TABLE IF NOT EXISTS media (
     filename TEXT NOT NULL,
     original_path TEXT,
     stored_path TEXT NOT NULL,
+    content_hash TEXT,
     mime_type TEXT,
     duration REAL,
     pinned_at TEXT,
     created_at TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_media_content_hash ON media(content_hash);
 
 CREATE TABLE IF NOT EXISTS transcripts (
     id TEXT PRIMARY KEY,
@@ -77,6 +80,9 @@ def init_db() -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(media)").fetchall()}
         if "pinned_at" not in columns:
             conn.execute("ALTER TABLE media ADD COLUMN pinned_at TEXT")
+        if "content_hash" not in columns:
+            conn.execute("ALTER TABLE media ADD COLUMN content_hash TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_media_content_hash ON media(content_hash)")
         transcript_columns = {row["name"] for row in conn.execute("PRAGMA table_info(transcripts)").fetchall()}
         if "corpus_saved_at" not in transcript_columns:
             conn.execute("ALTER TABLE transcripts ADD COLUMN corpus_saved_at TEXT")
