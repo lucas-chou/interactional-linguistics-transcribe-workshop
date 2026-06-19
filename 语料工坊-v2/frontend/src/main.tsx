@@ -641,53 +641,37 @@ function App() {
     setHasUnsavedChanges(false);
   }
 
-  function applyAutoPreAnnotation() {
+  async function applyPreAnnotation() {
     if (!transcript) return;
-    if (hasUnsavedChanges && !window.confirm('当前编辑器有未保存修改。自动预标注会在当前文本上插入停顿标记，建议先保存。确定继续吗？')) {
+    if (hasUnsavedChanges && !window.confirm('当前编辑器有未保存修改。预标注会在当前文本上插入候选标记，建议先保存。确定继续吗？')) {
       return;
     }
-    const result = buildAutoPreAnnotatedText(transcript, draftText);
-    const totalCount = result.pauseCount + result.seamlessCount;
-    if (!totalCount) {
-      window.alert('未发现可自动插入的停顿或无缝连接标记。该功能需要 WhisperX 词级时间戳。');
-      return;
-    }
-    setDraftText(result.text);
-    setHasUnsavedChanges(true);
-    setPlaybackHighlightRange(null);
-    setSaveMessage(`已插入 ${totalCount} 个停顿/无缝连接预标注`);
-    window.setTimeout(() => setSaveMessage(''), 2500);
-  }
+    const timingResult = buildAutoPreAnnotatedText(transcript, draftText);
+    let nextText = timingResult.text;
+    let totalCount = timingResult.pauseCount + timingResult.seamlessCount;
 
-  async function applyAcousticPreAnnotation() {
-    if (!transcript) return;
-    if (hasUnsavedChanges && !window.confirm('当前编辑器有未保存修改。声学预标注会在当前文本上插入候选标记，建议先保存。确定继续吗？')) {
-      return;
-    }
     setSaveMessage('正在分析声学候选...');
     const response = await fetch(`${API_BASE}/api/transcripts/${transcript.id}/acoustic-candidates`);
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       window.alert(data.detail ?? '声学预标注失败');
+    } else {
+      const data: { candidates: AcousticCandidate[] } = await response.json();
+      if (data.candidates.length) {
+        const acousticResult = buildAcousticPreAnnotatedText(transcript, nextText, data.candidates);
+        nextText = acousticResult.text;
+        totalCount += acousticResult.insertedCount;
+      }
+    }
+    if (!totalCount) {
+      window.alert('未发现可自动插入的预标注。');
       setSaveMessage('');
       return;
     }
-    const data: { candidates: AcousticCandidate[] } = await response.json();
-    if (!data.candidates.length) {
-      window.alert('未发现可插入的声学预标注候选。');
-      setSaveMessage('');
-      return;
-    }
-    const result = buildAcousticPreAnnotatedText(transcript, draftText, data.candidates);
-    if (!result.insertedCount) {
-      window.alert('声学候选已存在，未重复插入。');
-      setSaveMessage('');
-      return;
-    }
-    setDraftText(result.text);
+    setDraftText(nextText);
     setHasUnsavedChanges(true);
     setPlaybackHighlightRange(null);
-    setSaveMessage(`已插入 ${result.insertedCount} 个声学候选标记`);
+    setSaveMessage(`已插入 ${totalCount} 个预标注`);
     window.setTimeout(() => setSaveMessage(''), 2500);
   }
 
@@ -1204,8 +1188,7 @@ function App() {
                     />
                     播放时光标跟随
                   </label>
-                  <button onClick={applyAutoPreAnnotation} disabled={!transcript}>自动预标注</button>
-                  <button onClick={applyAcousticPreAnnotation} disabled={!transcript}>声学预标注</button>
+                  <button onClick={applyPreAnnotation} disabled={!transcript}>自动预标注</button>
                   {saveMessage && <span>{saveMessage}</span>}
                   {transcript && <span>{transcript.segments.length} 个片段</span>}
                 </div>
@@ -1309,7 +1292,7 @@ function App() {
       )}
 
       <footer className="corpus-footer">
-        本程序由河北大学周焱设计搭建，如果你有改进的想法可联系 zhouyanwork@163.com。
+        本程序由河北大学周焱设计搭建，如果您有改进的想法可联系 zhouyanwork@163.com。
       </footer>
     </main>
   );
