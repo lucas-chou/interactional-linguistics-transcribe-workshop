@@ -1186,14 +1186,32 @@ function App() {
                   <option value="en">英文</option>
                 </select>
               </label>
-              <label>设备
+              <label>
+                <span className="label-with-help">
+                  设备
+                  <span className="preannotation-help model-help" tabIndex={0} aria-label="设备说明">
+                    ?
+                    <span className="preannotation-tooltip model-tooltip">
+                      auto 会自动选择可用设备；CPU 兼容性最好但速度较慢；CUDA 需要 NVIDIA 显卡和对应环境，速度最快。普通电脑建议保持 auto。
+                    </span>
+                  </span>
+                </span>
                 <select value={settings.device} onChange={(event) => setSettings({ ...settings, device: event.target.value })}>
                   <option value="auto">自动</option>
                   <option value="cpu">CPU</option>
                   <option value="cuda">CUDA</option>
                 </select>
               </label>
-              <label>精度
+              <label>
+                <span className="label-with-help">
+                  精度
+                  <span className="preannotation-help model-help" tabIndex={0} aria-label="精度说明">
+                    ?
+                    <span className="preannotation-tooltip model-tooltip">
+                      auto 会自动选择合适精度；int8 占用低、CPU 更稳但可能略影响准确率；float16 适合 CUDA 显卡；float32 兼容性高但更慢、更占内存。
+                    </span>
+                  </span>
+                </span>
                 <select value={settings.compute_type} onChange={(event) => setSettings({ ...settings, compute_type: event.target.value })}>
                   <option value="auto">自动</option>
                   <option value="int8">int8</option>
