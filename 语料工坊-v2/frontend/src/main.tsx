@@ -230,13 +230,12 @@ function App() {
       const items = await loadMediaItems();
       await selectMedia(items.find((item) => item.id === data.id) ?? data);
       if (data.duplicate) {
-        window.alert('???????????????????');
+        window.alert('该文件已经导入过，已直接打开已有媒体。');
       }
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '??????');
+      window.alert(error instanceof Error ? error.message : '导入媒体失败');
     }
   }
-
   async function transcribe() {
     if (!selectedMedia) return;
     try {
@@ -271,12 +270,12 @@ function App() {
 
       const startPolling = () => {
         if (pollingTimer !== null || latestTask.status === 'completed' || latestTask.status === 'failed') return;
-        setSaveMessage('???????????????...');
+        setSaveMessage('连接转写进度失败，已切换为轮询模式...');
         pollingTimer = window.setInterval(() => {
           apiJson<TaskStatus>(`${API_BASE}/api/tasks/${initialTask.id}`)
             .then(handleTaskUpdate)
             .catch((error) => {
-              setTask({ ...latestTask, status: 'failed', stage: 'failed', error: error instanceof Error ? error.message : '????????' });
+              setTask({ ...latestTask, status: 'failed', stage: 'failed', error: error instanceof Error ? error.message : '获取转写进度失败' });
               if (pollingTimer !== null) {
                 window.clearInterval(pollingTimer);
                 pollingTimer = null;
@@ -292,10 +291,9 @@ function App() {
       socket.onerror = startPolling;
       socket.onclose = startPolling;
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '????????');
+      window.alert(error instanceof Error ? error.message : '启动转写失败');
     }
   }
-
   async function loadTranscript(transcriptId: string) {
     const data = await apiJson<Transcript>(`${API_BASE}/api/transcripts/${transcriptId}`);
     setTranscript(data);
@@ -542,13 +540,12 @@ function App() {
       });
       await loadTranscript(data.transcript_id);
       await loadMediaItems();
-      setSaveMessage('???????');
+      setSaveMessage('转写文本已导入');
       window.setTimeout(() => setSaveMessage(''), 2000);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '??????');
+      window.alert(error instanceof Error ? error.message : '导入转写文本失败');
     }
   }
-
   async function loadSystemStatus() {
     setSystemStatusChecking(true);
     setSystemMessage('正在检查系统状态...');
@@ -571,13 +568,13 @@ function App() {
 
   async function restoreBackup() {
     if (!restoreFile) return;
-    if (!window.confirm('???????????????????????????????????????')) return;
-    setSystemMessage('??????...');
+    if (!window.confirm('恢复备份会覆盖当前数据库和媒体文件。建议先创建当前备份。确定继续吗？')) return;
+    setSystemMessage('正在恢复备份...');
     try {
       const form = new FormData();
       form.append('file', restoreFile);
       const data = await apiJson<{ ok: boolean; safety_backup: string }>(`${API_BASE}/api/backups/restore`, { method: 'POST', body: form });
-      setSystemMessage(`??????????${data.safety_backup}`);
+      setSystemMessage(`备份已恢复，恢复前的安全备份：${data.safety_backup}`);
       setSelectedMedia(null);
       setTranscript(null);
       setDraftText('');
@@ -587,7 +584,7 @@ function App() {
       await loadMediaItems();
       await loadBackups();
     } catch (error) {
-      setSystemMessage(error instanceof Error ? error.message : '????');
+      setSystemMessage(error instanceof Error ? error.message : '恢复备份失败');
     }
   }
 
@@ -597,14 +594,14 @@ function App() {
   }
 
   async function deleteBackup(filename: string) {
-    if (!window.confirm(`???????? ${filename} ??`)) return;
+    if (!window.confirm(`确定删除备份 ${filename} 吗？`)) return;
     try {
       await apiFetch(`${API_BASE}/api/backups/${encodeURIComponent(filename)}`, { method: 'DELETE' });
       setOpenBackupMenuId('');
-      setSystemMessage(`??????${filename}`);
+      setSystemMessage(`已删除备份：${filename}`);
       await loadBackups();
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '??????');
+      window.alert(error instanceof Error ? error.message : '删除备份失败');
     }
   }
 
@@ -618,7 +615,6 @@ function App() {
     setSystemMessage(data.ok ? '数据清理完成' : '数据清理失败');
     await Promise.all([loadCleanupPreview(), loadMediaItems(), loadSystemStatus()]);
   }
-
   function toggleResultSelection(transcriptId: string, checked: boolean) {
     setSelectedResultIds((current) => checked ? Array.from(new Set([...current, transcriptId])) : current.filter((id) => id !== transcriptId));
   }
@@ -637,7 +633,7 @@ function App() {
 
   async function exportSelectedResults(format: 'txt' | 'csv') {
     if (!selectedResultIds.length) {
-      window.alert('??????????');
+      window.alert('请先选择要导出的语料');
       return;
     }
     try {
@@ -653,19 +649,19 @@ function App() {
       link.download = `corpus-batch-export.${format}.zip`;
       link.click();
       URL.revokeObjectURL(url);
-      setSaveMessage(`??? ${selectedResultIds.length} ???`);
+      setSaveMessage(`已导出 ${selectedResultIds.length} 条语料`);
       window.setTimeout(() => setSaveMessage(''), 2000);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '??????');
+      window.alert(error instanceof Error ? error.message : '批量导出失败');
     }
   }
 
   async function deleteSelectedResults() {
     if (!selectedResultIds.length) {
-      window.alert('??????????');
+      window.alert('请先选择要删除的语料');
       return;
     }
-    if (!window.confirm(`??????????? ${selectedResultIds.length} ?????????????????????`)) {
+    if (!window.confirm(`确定从语料库中删除选中的 ${selectedResultIds.length} 条语料吗？原始媒体和转写草稿不会被删除。`)) {
       return;
     }
     try {
@@ -675,14 +671,13 @@ function App() {
         body: JSON.stringify({ transcript_ids: selectedResultIds }),
       });
       setSelectedResultIds([]);
-      setSaveMessage('???????????');
+      setSaveMessage('已从语料库删除选中语料');
       window.setTimeout(() => setSaveMessage(''), 2000);
       await Promise.all([search(), loadMediaItems(), loadTags()]);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : '??????');
+      window.alert(error instanceof Error ? error.message : '删除语料失败');
     }
   }
-
   return (
     <main className="app-shell">
       <header className="topbar">
