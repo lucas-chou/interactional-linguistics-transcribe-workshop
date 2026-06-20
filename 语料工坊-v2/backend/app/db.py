@@ -81,16 +81,24 @@ def init_db() -> None:
         if "content_hash" not in columns:
             conn.execute("ALTER TABLE media ADD COLUMN content_hash TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_media_content_hash ON media(content_hash)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_media_created_at ON media(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_media_pinned_at ON media(pinned_at)")
         transcript_columns = {row["name"] for row in conn.execute("PRAGMA table_info(transcripts)").fetchall()}
         if "corpus_saved_at" not in transcript_columns:
             conn.execute("ALTER TABLE transcripts ADD COLUMN corpus_saved_at TEXT")
             conn.execute("DELETE FROM corpus_fts")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_transcripts_media_id ON transcripts(media_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_transcripts_corpus_saved_at ON transcripts(corpus_saved_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_segments_transcript_id ON segments(transcript_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_words_segment_id ON words(segment_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_transcript_tags_tag ON transcript_tags(tag)")
 
 
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
         conn.commit()

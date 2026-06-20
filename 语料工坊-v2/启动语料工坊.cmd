@@ -1,5 +1,18 @@
 @echo off
-chcp 65001 >nul
 set "ROOT=%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%start.ps1"
-pause
+set "SCRIPT=%ROOT%start.ps1"
+set "POWERSHELL=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+
+if not exist "%SCRIPT%" (
+  echo Cannot find "%SCRIPT%"
+  pause
+  exit /b 1
+)
+
+"%POWERSHELL%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%"
+if errorlevel 1 (
+  echo.
+  echo Startup failed. Please check the log files shown above.
+  pause
+  exit /b %errorlevel%
+)
