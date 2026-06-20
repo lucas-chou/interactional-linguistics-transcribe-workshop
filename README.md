@@ -1,35 +1,35 @@
 # 语料工坊 v2
 
-语料工坊 v2 是一个本地语料转写、编辑、标注、入库和检索工具。
+语料工坊 v2 是一个面向互动语言学、会话分析和转写语料整理的本地化工具，支持音视频导入、WhisperX 转写、文本编辑、标注、入库、检索、导出和备份恢复。
 
-## 架构
+## 项目结构
 
 ```text
-frontend/  React + Vite + TypeScript
-backend/   FastAPI + WhisperX + Parselmouth + SQLite
+语料工坊-v2/
+  frontend/  React + Vite + TypeScript
+  backend/   FastAPI + WhisperX + Parselmouth + SQLite
 ```
 
-本程序默认在本地运行：
+默认本地服务地址：
 
 - 前端：`http://127.0.0.1:5173`
 - 后端：`http://127.0.0.1:8765`
-- 数据：`backend/data/`
+- 数据目录：`语料工坊-v2/backend/data/`
 
 ## 主要功能
 
-- 本地导入音视频文件
-- WhisperX 转写和词级对齐
-- 转写文本编辑和手动标注
-- 自动预标注候选
-- 自定义标签
-- 语料库全文检索
+- 本地导入音频和视频文件
+- WhisperX 本地转写与可选精细对齐
+- 播放器、转写编辑器和时间对齐联动
+- DT 风格人工标注符号插入
+- 自动预标注候选，包括停顿、延长音、升降调、重音和语速候选
+- 自定义标签与语料库全文检索
 - TXT / CSV 导出
-- 本地备份和恢复
-- 数据清理和状态检查
+- 本地备份、恢复、状态检查和数据清理
 
 ## 首次安装
 
-使用者电脑需要提前安装以下基础环境：
+使用者电脑需要提前安装以下基础环境。
 
 ### 1. Python 3.10 或 3.11
 
@@ -73,9 +73,7 @@ https://ffmpeg.org/download.html
 - 解压后把 `ffmpeg.exe` 所在的 `bin` 目录加入系统 `PATH`。
 - 安装后重新打开命令行，运行 `ffmpeg -version`，能显示版本信息即安装成功。
 
-完成以上三项后，再双击 `安装依赖.cmd`。
-
-在新电脑或分发包中，先双击：
+完成以上三项后，进入 `语料工坊-v2` 目录，双击：
 
 ```text
 安装依赖.cmd
@@ -90,7 +88,7 @@ https://ffmpeg.org/download.html
 
 ## 日常启动
 
-双击：
+进入 `语料工坊-v2` 目录，双击：
 
 ```text
 启动语料工坊.cmd
@@ -106,7 +104,7 @@ https://ffmpeg.org/download.html
 
 ## 打包分发
 
-开发者双击：
+开发者进入 `语料工坊-v2` 目录，双击：
 
 ```text
 打包分发.cmd
@@ -124,7 +122,7 @@ release/语料工坊-v2-release.zip
 详细说明见：
 
 ```text
-分发说明.md
+语料工坊-v2/分发说明.md
 ```
 
 ## 数据说明
@@ -132,7 +130,7 @@ release/语料工坊-v2-release.zip
 用户数据保存在：
 
 ```text
-backend/data/
+语料工坊-v2/backend/data/
 ```
 
 其中：
@@ -143,3 +141,7 @@ backend/data/
 - `backups/` 保存系统界面创建的备份
 
 发布到 GitHub 或分发给他人时，不要上传 `backend/data/`。
+
+## 作者
+
+本程序由河北大学周焱设计搭建。如果你有改进想法，可联系：`zhouyanwork@163.com`
